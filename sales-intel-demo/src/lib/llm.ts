@@ -20,7 +20,8 @@ export async function enhanceWithLlm(card: Battlecard, input: ResearchInput, con
     const cited = [...advice.painHypotheses, advice.talkTrack.opening].every((item) => item.sourceIds.every((id) => sourceIds.has(id)));
     if (!cited) throw new Error("模型返回了未知来源编号");
     return { ...card, ...advice };
-  } catch {
+  } catch (error) {
+    console.error("LLM advice fallback:", error instanceof Error ? error.message : "unknown error");
     return { ...card, warnings: [...card.warnings, "模型增强未完成，以下为基于公开证据的规则版建议。"] };
   }
 }
