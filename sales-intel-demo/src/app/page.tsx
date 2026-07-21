@@ -26,7 +26,7 @@ export default function Home() {
           preset,
           sellerProfile: {
             productName,
-            valueProposition: `${productName} 帮助销售团队将公开资料转化为可执行的客户沟通准备。`,
+            valueProposition: `用户提供的产品信息：${productName}。不得推断未提供的功能、参数或效果。`,
             targetCustomer: "需要拓展客户的销售团队",
             customerProblems: ["售前准备信息分散"],
             proofPoints: ["每条事实可追溯来源"],
@@ -57,7 +57,7 @@ export default function Home() {
     <form onSubmit={submit} className="intake">
       <label className="url-field">目标公司官网<input value={targetUrl} onChange={(event) => setTargetUrl(event.target.value)} required /></label>
       <label>行业预设<select value={preset} onChange={(event) => setPreset(event.target.value as Preset)}>{presets.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      <label>你的产品<input value={productName} onChange={(event) => setProductName(event.target.value)} required /></label>
+      <label>你的产品<input value={productName} onChange={(event) => setProductName(event.target.value)} placeholder="例如：冰箱生产线设备，具体能力可在沟通中确认" required /></label>
       <button disabled={loading}>{loading ? "正在调研…" : "生成客户调研报告"}</button>
     </form>
     {error && <p className="error" role="alert">{error}</p>}

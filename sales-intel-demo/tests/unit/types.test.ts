@@ -36,6 +36,6 @@ describe("核心数据契约", () => {
     const cited = { text: "公开官网资料显示企业持续拓展海外服务网络。", sourceIds: ["source-01"] };
     expect(CompanyOverviewSchema.parse({ companyIntroduction: cited, productsAndServices: [cited], industryAndCoverage: cited, recentUpdates: [cited] }).recentUpdates).toHaveLength(1);
     expect(CompanyAnalysisSchema.parse({ businessModel: cited, productPositioning: cited, targetCustomers: cited, competitionObservation: cited, painHypotheses: [{ ...cited, businessImpact: "可能影响服务响应效率。", confidenceLabel: "低", validationQuestion: "当前最难协调的服务环节是什么？" }] }).painHypotheses).toHaveLength(1);
-    expect(SalesStrategySchema.parse({ entryPoints: [cited], recommendation: cited, opening: cited, potentialNeeds: [cited], discoveryQuestions: [{ question: "当前最难协同的环节是什么？", purpose: "验证公开信号。" }, { question: "会影响哪些客户体验？", purpose: "量化影响。" }, { question: "谁参与下一步评估？", purpose: "明确决策。" }], recommendedNextStep: "安排一次小范围需求澄清。", avoid: ["不要将公开推断当作已确认事实。"] }).discoveryQuestions).toHaveLength(3);
+    expect(SalesStrategySchema.parse({ entryPoints: [cited], recommendation: cited, opening: cited, potentialNeeds: [cited], discoveryQuestions: [{ question: "当前最难协同的环节是什么？", purpose: "验证公开信号。" }, { question: "会影响哪些客户体验？", purpose: "量化影响。" }, { question: "谁参与下一步评估？", purpose: "明确决策。" }, { question: "目前使用什么方案？", purpose: "了解现状。" }, { question: "是否适合小范围验证？", purpose: "推进下一步。" }], recommendedNextStep: "安排一次小范围需求澄清。", avoid: ["不要将公开推断当作已确认事实。"] }).discoveryQuestions).toHaveLength(5);
   });
 });

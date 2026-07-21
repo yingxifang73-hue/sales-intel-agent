@@ -105,7 +105,7 @@ export const SalesStrategySchema = z.object({
   recommendation: CitedTextSchema,
   opening: CitedTextSchema,
   potentialNeeds: z.array(CitedTextSchema).min(1).max(3),
-  discoveryQuestions: z.array(QuestionSchema).length(3),
+  discoveryQuestions: z.array(QuestionSchema).length(5),
   recommendedNextStep: z.string().trim().min(4).max(300),
   avoid: z.array(z.string().trim().min(4).max(200)).min(1).max(3),
 });

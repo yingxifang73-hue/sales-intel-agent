@@ -5,6 +5,7 @@ import type { Battlecard, ResearchInput, Source } from "@/lib/types";
 import { assertPublicHttpUrl } from "@/lib/url-security";
 import { enhanceWithLlm } from "@/lib/llm";
 import type { AppConfig } from "@/lib/config";
+import { cleanSourceText, decodeHtmlEntities, selectEvidenceExcerpts } from "@/lib/evidence";
 
 export interface CollectionResult {
   sources: RawSource[];
@@ -33,7 +34,7 @@ function htmlToText(html: string): string {
 
 function htmlTitle(html: string, fallback: string): string {
   const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return (match?.[1] ?? fallback).replace(/\s+/g, " ").trim().slice(0, 300);
+  return decodeHtmlEntities(match?.[1] ?? fallback).replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
 function htmlDescription(html: string): string | undefined {
@@ -50,7 +51,7 @@ export class DirectFetchCrawler implements CrawlerPort {
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) throw new Error("官网没有返回可读取的 HTML 页面");
     const html = await response.text();
-    const content = [htmlDescription(html), htmlToText(html)].filter(Boolean).join("\n\n");
+    const content = cleanSourceText([htmlDescription(html), htmlToText(html)].filter(Boolean).join("\n\n"));
     if (content.length < 240) throw new Error("官网直连内容过少，可能为动态页面或访问限制");
     return {
       sources: [{ url: targetUrl, title: htmlTitle(html, new URL(targetUrl).hostname), content, sourceType: "official", fetchedAt: new Date().toISOString() }],
@@ -104,9 +105,23 @@ export class HybridCrawler implements CrawlerPort {
 
 function sourceFromDocument(document: { url?: string; title?: string; description?: string; markdown?: string; metadata?: { sourceURL?: string; title?: string; publishedTime?: string } }, sourceType: Source["sourceType"]): RawSource | undefined {
   const url = document.url ?? document.metadata?.sourceURL;
-  const content = document.markdown ?? document.description;
+  const content = cleanSourceText(document.markdown ?? document.description ?? "");
   if (!url || !content) return undefined;
-  return { url, title: document.metadata?.title ?? document.title ?? url, content, sourceType, fetchedAt: new Date().toISOString(), publishedAt: document.metadata?.publishedTime };
+  return { url, title: cleanSourceText(document.metadata?.title ?? document.title ?? url).slice(0, 300), content, sourceType, fetchedAt: new Date().toISOString(), publishedAt: document.metadata?.publishedTime };
+}
+
+function sourceMatchesTarget(document: { url?: string; title?: string; description?: string; markdown?: string; metadata?: { sourceURL?: string; title?: string } }, targetUrl: string): boolean {
+  const target = new URL(targetUrl);
+  const brand = target.hostname.replace(/^www\./, "").split(".")[0]!.toLowerCase();
+  const sourceUrl = document.url ?? document.metadata?.sourceURL ?? "";
+  if (sourceUrl) {
+    try {
+      const sourceHost = new URL(sourceUrl).hostname.replace(/^www\./, "");
+      if (sourceHost === target.hostname.replace(/^www\./, "") || sourceHost.endsWith(`.${target.hostname.replace(/^www\./, "")}`)) return true;
+    } catch { /* invalid search result URL is rejected below */ }
+  }
+  const haystack = `${document.metadata?.title ?? ""} ${document.title ?? ""} ${document.description ?? ""} ${(document.markdown ?? "").slice(0, 1_000)}`.toLowerCase();
+  return brand.length >= 3 && haystack.includes(brand);
 }
 
 export class FirecrawlCrawler implements CrawlerPort {
@@ -127,7 +142,13 @@ export class FirecrawlCrawler implements CrawlerPort {
     }
     for (const result of searchResults) {
       if (result.status !== "fulfilled") continue;
-      for (const item of [...(result.value.web ?? []), ...(result.value.news ?? [])]) {
+      for (const item of result.value.web ?? []) {
+        if (!sourceMatchesTarget(item, targetUrl)) continue;
+        const source = sourceFromDocument(item, "other");
+        if (source) sources.push(source);
+      }
+      for (const item of result.value.news ?? []) {
+        if (!sourceMatchesTarget(item, targetUrl)) continue;
         const source = sourceFromDocument(item, "news");
         if (source) sources.push(source);
       }
@@ -157,81 +178,65 @@ export class DemoCrawler implements CrawlerPort {
 }
 
 function sourceInsight(source: Source): string {
-  const normalized = source.content.replace(/\s+/g, " ").trim();
-  const segments = normalized.split(/(?<=[。！？.!?])\s+/).map((segment) => segment.trim()).filter((segment) => segment.length >= 30);
-  return (segments.find((segment) => !/(cookie|privacy|copyright|menu|search)/i.test(segment)) ?? normalized).slice(0, 220);
+  return selectEvidenceExcerpts(source, ["company", "product", "service", "market", "news", "公司", "产品", "服务", "市场", "发布"]).slice(0, 220);
 }
 
 export function synthesizeBattlecard(input: ResearchInput, sources: Source[], collectionNotes: string[], warnings: string[]): Battlecard {
   const preset = getPreset(input.preset);
   const primary = sources[0]!;
-  const secondary = sources[1] ?? primary;
-  const primaryInsight = sourceInsight(primary);
-  const secondaryInsight = sourceInsight(secondary);
-  const sourceIds = [primary.id, ...(secondary.id === primary.id ? [] : [secondary.id])];
+  const sourceIds = [primary.id];
   const company = new URL(input.targetUrl).hostname.replace(/^www\./, "");
   const cited = (text: string) => ({ text, sourceIds });
-  const primaryCited = (text: string) => ({ text, sourceIds: [primary.id] });
-  const secondaryCited = (text: string) => ({ text, sourceIds: [secondary.id] });
   const basePain = {
-    text: `待验证：围绕“${primary.title}”所反映的业务推进，团队可能需要更快地统一客户、渠道或项目相关信息。`,
-    sourceIds: [primary.id],
-    businessImpact: `若信息无法及时汇总与复用，可能拖慢后续协同和机会推进；需结合“${secondary.title}”的实际场景求证。`,
+    text: "待验证：目标公司的具体业务痛点需要结合已采集来源完成中文研究后判断。",
+    sourceIds,
+    businessImpact: "当前不根据未整理的外文原文推断业务影响。",
     confidenceLabel: "低" as const,
-    validationQuestion: `从“${primary.title}”这项公开业务信息出发，当前最需要跨团队协调、最容易延误的环节是什么？`,
+    validationQuestion: "目前最希望改善的业务环节和衡量指标是什么？",
   };
+  const fallbackQuestions = [
+    ...preset.suggestedQuestions.map((question) => ({ question, purpose: "确认优先级与现有做法。" })),
+    { question: "如果这个问题被解决，最希望看到哪项指标改善？", purpose: "定义可衡量价值。" },
+    { question: "目前使用什么方式或方案处理这项工作？", purpose: "了解现状和替代方式。" },
+    { question: "哪些角色会参与评估与落地？", purpose: "识别决策与使用链路。" },
+    { question: "是否有一个适合先验证的小范围场景？", purpose: "推进下一步试点。" },
+  ].slice(0, 5);
   return {
-    overview: cited(`${company} 的公开页面“${primary.title}”提到：${primaryInsight}。建议先核实这项业务信号对一线协同和增长目标的具体影响。`),
-    signals: [{ text: `公开信号：${primary.title} — ${primaryInsight}`, sourceIds: [primary.id] }],
+    overview: cited(`已采集 ${company} 的公开资料，等待中文研究和证据归类。`),
+    signals: [cited("公开来源已经采集，但未将未经中文整理的原文直接作为业务结论。")],
     painHypotheses: [basePain],
     talkTrack: {
-      objective: "确认公开业务信号对应的真实优先级、影响范围和是否值得启动小范围验证。",
-      opening: cited(`我看到 ${company} 在“${primary.title}”中提到“${primaryInsight}”。想先了解这项推进中最难协同的一步，再判断 ${input.sellerProfile.productName} 是否适合从一个小场景协助验证。`),
-      discoveryQuestions: [
-        { question: `围绕“${primary.title}”，现在最影响效率的环节是什么？`, purpose: "确认业务痛点。" },
-        { question: "这个环节会影响哪些业务指标或客户体验？", purpose: "量化影响。" },
-        { question: "谁会参与评估和决定下一步？", purpose: "了解决策路径。" },
-      ],
-      valueBridge: input.sellerProfile.valueProposition,
-      recommendedNextStep: "选择一个与公开业务信号相关的具体场景，约定 20 分钟需求澄清并界定小范围验证。",
+      objective: "等待中文公司研究完成后，再验证客户信号与销售方产品之间的真实关联。",
+      opening: cited(`已采集 ${company} 的公开来源；中文研究未完成前不生成可能误导的开场话术。`),
+      discoveryQuestions: fallbackQuestions.slice(0, 3),
+      valueBridge: `${input.sellerProfile.productName} 的具体能力和适用场景需要销售人员与客户共同确认。`,
+      recommendedNextStep: "请重试中文研究；研究完成后再准备正式沟通。",
       avoid: ["不要把公开信息推断描述为已确认的客户内部事实。"],
     },
-    productMappings: [{ ...cited(`以“${primary.title}”的公开信号切入，先验证问题再讨论方案。`), sellerCapability: input.sellerProfile.valueProposition, expectedValue: `帮助 ${input.sellerProfile.targetCustomer} 围绕该业务信号更快形成可执行的下一步。` }],
-    questions: [
-      ...preset.suggestedQuestions.map((question) => ({ question, purpose: "确认优先级与现有做法。" })),
-      { question: "如果这个问题被解决，最希望看到哪项指标改善？", purpose: "定义可衡量价值。" },
-      { question: "哪些角色会参与评估与落地？", purpose: "识别决策与使用链路。" },
-      { question: "是否有一个适合先验证的小范围场景？", purpose: "推进下一步试点。" },
-    ].slice(0, 5),
-    opening: cited(`我看到 ${company} 在“${primary.title}”中公开提到相关业务。想先了解这件事当前最难的一步，再判断 ${input.sellerProfile.productName} 是否值得协助做一个小范围验证。`),
+    productMappings: [{ ...cited(`等待中文研究完成后，再判断 ${input.sellerProfile.productName} 与客户公开信号的关联。`), sellerCapability: input.sellerProfile.productName, expectedValue: "具体价值和适用范围需要沟通验证。" }],
+    questions: fallbackQuestions,
+    opening: cited(`已采集 ${company} 的公开来源；中文研究未完成前不生成正式开场话术。`),
     risks: [cited("公开信息有限；所有痛点均为待验证假设，请在沟通中先求证。")],
     companyOverview: {
-      companyIntroduction: primaryCited(`公司介绍：${primaryInsight}`),
-      productsAndServices: [
-        primaryCited(`产品与服务线索：${primary.title} — ${primaryInsight}`),
-        ...(secondary.id === primary.id ? [] : [secondaryCited(`补充公开资料：${secondary.title} — ${secondaryInsight}`)]),
-      ],
-      industryAndCoverage: primaryCited(`行业与业务覆盖：从“${primary.title}”公开内容可见，该公司围绕相关产品、服务或市场覆盖开展业务；具体行业边界建议在沟通中确认。`),
-      recentUpdates: [secondaryCited(`近期动态：${secondary.title} — ${secondaryInsight}`)],
+      companyIntroduction: cited("公司公开资料已采集，中文公司介绍尚未通过质量检查。"),
+      productsAndServices: [cited("产品与服务资料已采集，等待中文归类。")],
+      industryAndCoverage: cited("行业与业务覆盖等待中文研究，当前不展示外文原文拼接。"),
+      recentUpdates: [cited("近期动态需要新闻语义和时间校验，当前尚未形成合格结论。")],
     },
     companyAnalysis: {
-      businessModel: primaryCited(`商业模式观察：公开资料显示公司通过“${primary.title}”涉及的产品或服务触达市场；具体收入结构、渠道分工与交付模式，当前公开资料不足，建议沟通中验证。`),
-      productPositioning: primaryCited(`产品定位观察：${primaryInsight}`),
-      targetCustomers: primaryCited(`目标客户观察：公开页面“${primary.title}”反映其面向相关市场提供产品或服务；具体客户画像和采购角色建议在首次沟通中确认。`),
-      competitionObservation: secondaryCited(`竞争观察：当前公开资料主要呈现“${secondary.title}”相关信息，尚不足以严谨判断直接竞争格局；建议询问客户现有方案、替代方式与评估标准。`),
+      businessModel: cited("商业模式等待中文研究，不根据原始网页片段直接推断。"),
+      productPositioning: cited("产品定位等待中文研究，不展示未经整理的英文原文。"),
+      targetCustomers: cited("目标客户等待中文研究，当前公开证据尚未形成合格结论。"),
+      competitionObservation: cited("当前公开资料不足以确认竞争情况，建议沟通中验证现有方案与评估标准。"),
       painHypotheses: [basePain],
     },
     salesStrategy: {
-      entryPoints: [primaryCited(`从“${primary.title}”这项公开信号切入：先确认其业务推进中最难协同的一步。`)],
-      recommendation: primaryCited(`推荐理由：${input.sellerProfile.productName} 可围绕该公开业务信号，${input.sellerProfile.valueProposition}`),
-      opening: cited(`我看到 ${company} 在“${primary.title}”中提到“${primaryInsight}”。想先了解这项推进中最难协同的一步，再判断 ${input.sellerProfile.productName} 是否适合从一个小场景协助验证。`),
-      potentialNeeds: [primaryCited(`待验证的潜在需求：将与“${primary.title}”相关的客户、渠道或项目公开信号，更快转化为团队可协同、可跟进的下一步。`)],
-      discoveryQuestions: [
-        { question: `围绕“${primary.title}”，现在最影响效率的环节是什么？`, purpose: "确认业务痛点。" },
-        { question: "这个环节会影响哪些业务指标或客户体验？", purpose: "量化影响。" },
-        { question: "谁会参与评估和决定下一步？", purpose: "了解决策路径。" },
-      ],
-      recommendedNextStep: "选择一个与公开业务信号相关的具体场景，约定 20 分钟需求澄清并界定小范围验证。",
+      entryPoints: [cited("中文公司研究未完成，暂不生成可能误导的电话切入点。")],
+      recommendation: cited(`${input.sellerProfile.productName} 的推荐理由必须同时依据客户公开信号和产品能力，当前等待研究完成。`),
+      opening: cited(`中文公司研究未完成，暂不生成关于 ${input.sellerProfile.productName} 的正式开场话术。`),
+      potentialNeeds: [cited("潜在需求需要基于客户证据并在沟通中验证，当前不做无依据推断。")],
+      discoveryQuestions: fallbackQuestions,
+      recommendedNextStep: "请重试中文研究；研究通过质量检查后再准备电话。",
       avoid: ["不要把公开信息推断描述为已确认的客户内部事实。"],
     },
     sources,

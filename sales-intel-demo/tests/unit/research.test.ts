@@ -11,7 +11,8 @@ describe("研究流水线", () => {
     expect(card.sources).toHaveLength(1);
     expect(card.questions).toHaveLength(5);
     expect(card.overview.sourceIds[0]).toBe(card.sources[0]?.id);
-    expect(card.overview.text).toContain("渠道升级计划");
+    expect(card.overview.text).toContain("等待中文研究");
+    expect(card.companyOverview.companyIntroduction.text).not.toMatch(/&#\d+;|[A-Za-z]{20,}/);
     expect(card.collectionNotes).toContain("直连成功");
   });
 
