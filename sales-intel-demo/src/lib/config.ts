@@ -3,6 +3,7 @@ import { z } from "zod";
 const EnvironmentSchema = z.object({
   FIRECRAWL_API_KEY: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_BASE_URL: z.url().default("https://api.openai.com/v1"),
   OPENAI_MODEL: z.string().min(1).default("gpt-4.1-mini"),
   SESSION_SECRET: z.string().min(32).optional(),
   DATABASE_PATH: z.string().min(1).default("./data/sales-intel.db"),

@@ -3,6 +3,8 @@ import { dedupeSources, type RawSource } from "@/lib/dedupe";
 import { getPreset } from "@/lib/presets";
 import type { Battlecard, ResearchInput, Source } from "@/lib/types";
 import { assertPublicHttpUrl } from "@/lib/url-security";
+import { enhanceWithLlm } from "@/lib/llm";
+import type { AppConfig } from "@/lib/config";
 
 export interface CrawlerPort {
   collect(input: ResearchInput): Promise<{ sources: RawSource[]; warnings: string[] }>;
@@ -57,7 +59,8 @@ export function synthesizeBattlecard(input: ResearchInput, sources: Source[], wa
   return {
     overview: cited(`${company} 的公开信息显示其正在围绕${preset.researchFocus.slice(0, 2).join("、")}推进业务。建议先确认当前增长目标与执行阻力，再以 ${input.sellerProfile.productName} 的具体能力切入。`),
     signals: [cited("官网与近期公开内容均提及产品、客户或业务推进，适合作为本次拜访的开场事实。")],
-    painHypotheses: [{ ...cited(`信息分散可能使团队难以将 ${preset.researchFocus[0]} 转化为一致的销售行动。`), validationQuestion: `围绕 ${preset.researchFocus[0]}，团队现在最花时间、最难协同的环节是什么？` }],
+    painHypotheses: [{ ...cited(`待验证：信息分散可能使团队难以将 ${preset.researchFocus[0]} 转化为一致的销售行动。`), businessImpact: "可能延长响应与协同周期，影响机会推进效率。", confidenceLabel: "低", validationQuestion: `围绕 ${preset.researchFocus[0]}，团队现在最花时间、最难协同的环节是什么？` }],
+    talkTrack: { objective: "确认问题是否真实存在、影响范围和是否值得启动小范围验证。", opening: cited(`我看到 ${company} 的公开动态，想先了解业务推进中最难的一步，再判断是否有必要做小范围验证。`), discoveryQuestions: [{ question: `围绕${preset.researchFocus[0]}，现在最影响效率的环节是什么？`, purpose: "确认业务痛点。" }, { question: "这一问题会影响哪些业务指标或客户体验？", purpose: "量化影响。" }, { question: "谁会参与评估和决定下一步？", purpose: "了解决策路径。" }], valueBridge: input.sellerProfile.valueProposition, recommendedNextStep: "选择一个具体场景，约定 20 分钟需求澄清与小范围验证范围。", avoid: ["不要把公开推断描述为已被确认的事实。"] },
     productMappings: [{ ...cited("以公开信号切入，先验证问题再讨论方案。"), sellerCapability: input.sellerProfile.valueProposition, expectedValue: `帮助 ${input.sellerProfile.targetCustomer} 更快形成可执行的下一步。` }],
     questions: [
       ...preset.suggestedQuestions.map((question) => ({ question, purpose: "确认优先级与现有做法。" })),
@@ -72,9 +75,10 @@ export function synthesizeBattlecard(input: ResearchInput, sources: Source[], wa
   };
 }
 
-export async function runResearch(input: ResearchInput, crawler: CrawlerPort): Promise<Battlecard> {
+export async function runResearch(input: ResearchInput, crawler: CrawlerPort, config?: AppConfig): Promise<Battlecard> {
   const collected = await crawler.collect(input);
   const sources = dedupeSources(collected.sources);
   if (!sources.length) throw new Error("未能从公开网页获得足以生成作战卡的证据。");
-  return synthesizeBattlecard(input, sources, collected.warnings);
+  const card = synthesizeBattlecard(input, sources, collected.warnings);
+  return config ? enhanceWithLlm(card, input, config) : card;
 }

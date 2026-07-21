@@ -61,6 +61,8 @@ export const CitedTextSchema = z.object({
 });
 
 export const PainHypothesisSchema = CitedTextSchema.extend({
+  businessImpact: z.string().trim().min(4).max(300),
+  confidenceLabel: z.enum(["低", "中", "高"]),
   validationQuestion: z.string().trim().min(4).max(300),
 });
 
@@ -74,12 +76,22 @@ export const QuestionSchema = z.object({
   purpose: z.string().trim().min(4).max(300),
 });
 
+export const TalkTrackSchema = z.object({
+  objective: z.string().trim().min(4).max(300),
+  opening: CitedTextSchema,
+  discoveryQuestions: z.array(QuestionSchema).min(3).max(3),
+  valueBridge: z.string().trim().min(4).max(400),
+  recommendedNextStep: z.string().trim().min(4).max(300),
+  avoid: z.array(z.string().trim().min(4).max(200)).min(1).max(3),
+});
+
 export const BattlecardSchema = z.object({
   overview: CitedTextSchema.refine((value) => value.text.length <= 180, {
     message: "概览不得超过 180 个字符",
   }),
   signals: z.array(CitedTextSchema).max(3),
   painHypotheses: z.array(PainHypothesisSchema).max(3),
+  talkTrack: TalkTrackSchema,
   productMappings: z.array(ProductMappingSchema).max(3),
   questions: z.array(QuestionSchema).length(5),
   opening: CitedTextSchema,
