@@ -17,7 +17,9 @@ export async function enhanceWithLlm(card: Battlecard, input: ResearchInput, con
     const completion = await client.chat.completions.create(request as never);
     const content = completion.choices[0]?.message.content;
     if (!content) throw new Error("模型未返回内容");
-    const advice = AdviceSchema.parse(JSON.parse(content));
+    const rawAdvice = JSON.parse(content) as { talkTrack?: { avoid?: string | string[] } };
+    if (typeof rawAdvice.talkTrack?.avoid === "string") rawAdvice.talkTrack.avoid = [rawAdvice.talkTrack.avoid];
+    const advice = AdviceSchema.parse(rawAdvice);
     const cited = [...advice.painHypotheses, advice.talkTrack.opening].every((item) => item.sourceIds.every((id) => sourceIds.has(id)));
     if (!cited) throw new Error("模型返回了未知来源编号");
     return { ...card, ...advice };
