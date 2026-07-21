@@ -10,6 +10,45 @@ export interface CrawlerPort {
   collect(input: ResearchInput): Promise<{ sources: RawSource[]; warnings: string[] }>;
 }
 
+const DIRECT_HEADERS = { "User-Agent": "SalesIntelligenceDemo/0.1", Accept: "text/html,application/xhtml+xml" };
+
+function htmlToText(html: string): string {
+  return html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/\s+/g, " ").trim().slice(0, 30_000);
+}
+
+function htmlTitle(html: string, fallback: string): string {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return (match?.[1] ?? fallback).replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+export class DirectFetchCrawler implements CrawlerPort {
+  async collect(input: ResearchInput): Promise<{ sources: RawSource[]; warnings: string[] }> {
+    const targetUrl = await assertPublicHttpUrl(input.targetUrl);
+    const response = await fetch(targetUrl, { headers: DIRECT_HEADERS, redirect: "follow", signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error(`官网直连返回 HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) throw new Error("官网没有返回可读取的 HTML 页面");
+    const html = await response.text();
+    const content = htmlToText(html);
+    if (content.length < 240) throw new Error("官网直连内容过少，可能为动态页面或访问限制");
+    return { sources: [{ url: targetUrl, title: htmlTitle(html, new URL(targetUrl).hostname), content, sourceType: "official", fetchedAt: new Date().toISOString() }], warnings: ["官网资料通过公开直连采集。"] };
+  }
+}
+
+export class HybridCrawler implements CrawlerPort {
+  constructor(private readonly firecrawlApiKey?: string) {}
+
+  async collect(input: ResearchInput): Promise<{ sources: RawSource[]; warnings: string[] }> {
+    try {
+      return await new DirectFetchCrawler().collect(input);
+    } catch (directError) {
+      if (!this.firecrawlApiKey) throw directError;
+      const fallback = await new FirecrawlCrawler(this.firecrawlApiKey).collect(input);
+      return { ...fallback, warnings: ["官网直连未成功，已改用 Firecrawl 补充采集。", ...fallback.warnings] };
+    }
+  }
+}
+
 function sourceFromDocument(document: { url?: string; title?: string; description?: string; markdown?: string; metadata?: { sourceURL?: string; title?: string; publishedTime?: string } }, sourceType: Source["sourceType"]): RawSource | undefined {
   const url = document.url ?? document.metadata?.sourceURL;
   const content = document.markdown ?? document.description;
