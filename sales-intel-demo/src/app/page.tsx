@@ -9,7 +9,6 @@ export default function Home() {
   const [targetUrl, setTargetUrl] = useState("https://example.com");
   const [preset, setPreset] = useState<Preset>("general");
   const [productName, setProductName] = useState("你的产品");
-  const [value, setValue] = useState("把公开信息整理成销售前可直接使用的行动建议");
   const [report, setReport] = useState<Battlecard>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,7 +26,7 @@ export default function Home() {
           preset,
           sellerProfile: {
             productName,
-            valueProposition: value,
+            valueProposition: `${productName} 帮助销售团队将公开资料转化为可执行的客户沟通准备。`,
             targetCustomer: "需要拓展客户的销售团队",
             customerProblems: ["售前准备信息分散"],
             proofPoints: ["每条事实可追溯来源"],
@@ -59,7 +58,6 @@ export default function Home() {
       <label className="url-field">目标公司官网<input value={targetUrl} onChange={(event) => setTargetUrl(event.target.value)} required /></label>
       <label>行业预设<select value={preset} onChange={(event) => setPreset(event.target.value as Preset)}>{presets.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label>你的产品<input value={productName} onChange={(event) => setProductName(event.target.value)} required /></label>
-      <label className="wide">一句价值主张<input value={value} onChange={(event) => setValue(event.target.value)} required /></label>
       <button disabled={loading}>{loading ? "正在调研…" : "生成客户调研报告"}</button>
     </form>
     {error && <p className="error" role="alert">{error}</p>}
