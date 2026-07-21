@@ -8,6 +8,7 @@ const EnvironmentSchema = z.object({
   SESSION_SECRET: z.string().min(32).optional(),
   DATABASE_PATH: z.string().min(1).default("./data/sales-intel.db"),
   E2E_FAKE_PROVIDERS: z.enum(["true", "false"]).default("false"),
+  ENABLE_LLM_ENHANCEMENT: z.enum(["true", "false"]).default("false"),
 });
 
 export type AppConfig = z.infer<typeof EnvironmentSchema>;
