@@ -1,0 +1,9 @@
+allowBuilds:
+  # Direct runtime database, Next image processing, and test/lint toolchain.
+  # New dependencies must be reviewed and added explicitly.
+  better-sqlite3: true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@testing-library/jest-dom@7.0.0'
