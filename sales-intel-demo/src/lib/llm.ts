@@ -122,7 +122,20 @@ export async function enhanceWithLlm(card: Battlecard, input: ResearchInput, con
     if (!content) throw new Error("empty model response");
     const advice = normalizeModelAdvice(content, card);
     if (!advice) throw new Error("model response contained no usable advice");
-    return { ...card, ...advice, modelStatus: "used", collectionNotes: [...card.collectionNotes, "模型已基于公开证据生成销售建议。"] };
+    return {
+      ...card,
+      ...advice,
+      companyAnalysis: { ...card.companyAnalysis, painHypotheses: advice.painHypotheses },
+      salesStrategy: {
+        ...card.salesStrategy,
+        opening: advice.talkTrack.opening,
+        discoveryQuestions: advice.talkTrack.discoveryQuestions,
+        recommendedNextStep: advice.talkTrack.recommendedNextStep,
+        avoid: advice.talkTrack.avoid,
+      },
+      modelStatus: "used",
+      collectionNotes: [...card.collectionNotes, "模型已基于公开证据生成销售建议。"],
+    };
   } catch (error) {
     console.error("LLM advice retained evidence-based card:", error instanceof Error ? error.message : "unknown error");
     return { ...card, modelStatus: "evidence_based", collectionNotes: [...card.collectionNotes, "模型建议本次未采用；已基于采集证据生成建议。"] };

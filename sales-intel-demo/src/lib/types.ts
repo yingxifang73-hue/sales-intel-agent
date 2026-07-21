@@ -85,6 +85,31 @@ export const TalkTrackSchema = z.object({
   avoid: z.array(z.string().trim().min(4).max(200)).min(1).max(3),
 });
 
+export const CompanyOverviewSchema = z.object({
+  companyIntroduction: CitedTextSchema,
+  productsAndServices: z.array(CitedTextSchema).min(1).max(3),
+  industryAndCoverage: CitedTextSchema,
+  recentUpdates: z.array(CitedTextSchema).min(1).max(3),
+});
+
+export const CompanyAnalysisSchema = z.object({
+  businessModel: CitedTextSchema,
+  productPositioning: CitedTextSchema,
+  targetCustomers: CitedTextSchema,
+  competitionObservation: CitedTextSchema,
+  painHypotheses: z.array(PainHypothesisSchema).min(1).max(3),
+});
+
+export const SalesStrategySchema = z.object({
+  entryPoints: z.array(CitedTextSchema).min(1).max(3),
+  recommendation: CitedTextSchema,
+  opening: CitedTextSchema,
+  potentialNeeds: z.array(CitedTextSchema).min(1).max(3),
+  discoveryQuestions: z.array(QuestionSchema).length(3),
+  recommendedNextStep: z.string().trim().min(4).max(300),
+  avoid: z.array(z.string().trim().min(4).max(200)).min(1).max(3),
+});
+
 export const BattlecardSchema = z.object({
   overview: CitedTextSchema.refine((value) => value.text.length <= 180, {
     message: "概览不得超过 180 个字符",
@@ -96,6 +121,9 @@ export const BattlecardSchema = z.object({
   questions: z.array(QuestionSchema).length(5),
   opening: CitedTextSchema,
   risks: z.array(CitedTextSchema).max(5),
+  companyOverview: CompanyOverviewSchema,
+  companyAnalysis: CompanyAnalysisSchema,
+  salesStrategy: SalesStrategySchema,
   sources: z.array(SourceSchema).min(1).max(20),
   collectionNotes: z.array(z.string().trim().min(2).max(240)).max(10),
   modelStatus: z.enum(["used", "evidence_based", "not_configured"]),

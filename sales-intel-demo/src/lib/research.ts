@@ -167,19 +167,23 @@ export function synthesizeBattlecard(input: ResearchInput, sources: Source[], co
   const primary = sources[0]!;
   const secondary = sources[1] ?? primary;
   const primaryInsight = sourceInsight(primary);
+  const secondaryInsight = sourceInsight(secondary);
   const sourceIds = [primary.id, ...(secondary.id === primary.id ? [] : [secondary.id])];
   const company = new URL(input.targetUrl).hostname.replace(/^www\./, "");
   const cited = (text: string) => ({ text, sourceIds });
+  const primaryCited = (text: string) => ({ text, sourceIds: [primary.id] });
+  const secondaryCited = (text: string) => ({ text, sourceIds: [secondary.id] });
+  const basePain = {
+    text: `待验证：围绕“${primary.title}”所反映的业务推进，团队可能需要更快地统一客户、渠道或项目相关信息。`,
+    sourceIds: [primary.id],
+    businessImpact: `若信息无法及时汇总与复用，可能拖慢后续协同和机会推进；需结合“${secondary.title}”的实际场景求证。`,
+    confidenceLabel: "低" as const,
+    validationQuestion: `从“${primary.title}”这项公开业务信息出发，当前最需要跨团队协调、最容易延误的环节是什么？`,
+  };
   return {
     overview: cited(`${company} 的公开页面“${primary.title}”提到：${primaryInsight}。建议先核实这项业务信号对一线协同和增长目标的具体影响。`),
     signals: [{ text: `公开信号：${primary.title} — ${primaryInsight}`, sourceIds: [primary.id] }],
-    painHypotheses: [{
-      text: `待验证：围绕“${primary.title}”所反映的业务推进，团队可能需要更快地统一客户、渠道或项目相关信息。`,
-      sourceIds: [primary.id],
-      businessImpact: `若信息无法及时汇总与复用，可能拖慢后续协同和机会推进；需结合“${secondary.title}”的实际场景求证。`,
-      confidenceLabel: "低",
-      validationQuestion: `从“${primary.title}”这项公开业务信息出发，当前最需要跨团队协调、最容易延误的环节是什么？`,
-    }],
+    painHypotheses: [basePain],
     talkTrack: {
       objective: "确认公开业务信号对应的真实优先级、影响范围和是否值得启动小范围验证。",
       opening: cited(`我看到 ${company} 在“${primary.title}”中提到“${primaryInsight}”。想先了解这项推进中最难协同的一步，再判断 ${input.sellerProfile.productName} 是否适合从一个小场景协助验证。`),
@@ -201,6 +205,35 @@ export function synthesizeBattlecard(input: ResearchInput, sources: Source[], co
     ].slice(0, 5),
     opening: cited(`我看到 ${company} 在“${primary.title}”中公开提到相关业务。想先了解这件事当前最难的一步，再判断 ${input.sellerProfile.productName} 是否值得协助做一个小范围验证。`),
     risks: [cited("公开信息有限；所有痛点均为待验证假设，请在沟通中先求证。")],
+    companyOverview: {
+      companyIntroduction: primaryCited(`公司介绍：${primaryInsight}`),
+      productsAndServices: [
+        primaryCited(`产品与服务线索：${primary.title} — ${primaryInsight}`),
+        ...(secondary.id === primary.id ? [] : [secondaryCited(`补充公开资料：${secondary.title} — ${secondaryInsight}`)]),
+      ],
+      industryAndCoverage: primaryCited(`行业与业务覆盖：从“${primary.title}”公开内容可见，该公司围绕相关产品、服务或市场覆盖开展业务；具体行业边界建议在沟通中确认。`),
+      recentUpdates: [secondaryCited(`近期动态：${secondary.title} — ${secondaryInsight}`)],
+    },
+    companyAnalysis: {
+      businessModel: primaryCited(`商业模式观察：公开资料显示公司通过“${primary.title}”涉及的产品或服务触达市场；具体收入结构、渠道分工与交付模式，当前公开资料不足，建议沟通中验证。`),
+      productPositioning: primaryCited(`产品定位观察：${primaryInsight}`),
+      targetCustomers: primaryCited(`目标客户观察：公开页面“${primary.title}”反映其面向相关市场提供产品或服务；具体客户画像和采购角色建议在首次沟通中确认。`),
+      competitionObservation: secondaryCited(`竞争观察：当前公开资料主要呈现“${secondary.title}”相关信息，尚不足以严谨判断直接竞争格局；建议询问客户现有方案、替代方式与评估标准。`),
+      painHypotheses: [basePain],
+    },
+    salesStrategy: {
+      entryPoints: [primaryCited(`从“${primary.title}”这项公开信号切入：先确认其业务推进中最难协同的一步。`)],
+      recommendation: primaryCited(`推荐理由：${input.sellerProfile.productName} 可围绕该公开业务信号，${input.sellerProfile.valueProposition}`),
+      opening: cited(`我看到 ${company} 在“${primary.title}”中提到“${primaryInsight}”。想先了解这项推进中最难协同的一步，再判断 ${input.sellerProfile.productName} 是否适合从一个小场景协助验证。`),
+      potentialNeeds: [primaryCited(`待验证的潜在需求：将与“${primary.title}”相关的客户、渠道或项目公开信号，更快转化为团队可协同、可跟进的下一步。`)],
+      discoveryQuestions: [
+        { question: `围绕“${primary.title}”，现在最影响效率的环节是什么？`, purpose: "确认业务痛点。" },
+        { question: "这个环节会影响哪些业务指标或客户体验？", purpose: "量化影响。" },
+        { question: "谁会参与评估和决定下一步？", purpose: "了解决策路径。" },
+      ],
+      recommendedNextStep: "选择一个与公开业务信号相关的具体场景，约定 20 分钟需求澄清并界定小范围验证。",
+      avoid: ["不要把公开信息推断描述为已确认的客户内部事实。"],
+    },
     sources,
     collectionNotes,
     modelStatus: "evidence_based",
