@@ -10,9 +10,9 @@ export async function enhanceWithLlm(card: Battlecard, input: ResearchInput, con
   const sourceIds = new Set(card.sources.map((source) => source.id));
   const client = new OpenAI({ apiKey: config.OPENAI_API_KEY, baseURL: config.OPENAI_BASE_URL, timeout: 30_000, maxRetries: 0 });
   try {
-    const request = { model: config.OPENAI_MODEL, temperature: 0.2, max_tokens: 900, response_format: { type: "json_object" as const }, messages: [
+    const request = { model: config.OPENAI_MODEL, temperature: 0.2, max_tokens: 1_800, response_format: { type: "json_object" as const }, messages: [
       { role: "system", content: "你是B2B售前顾问。只能根据提供的来源推断；所有痛点都必须标注为待验证，且每条 sourceIds 只能使用给定 ID。输出 JSON：{painHypotheses:[{text,businessImpact,confidenceLabel,validationQuestion,sourceIds}],talkTrack:{objective,opening:{text,sourceIds},discoveryQuestions:[{question,purpose}],valueBridge,recommendedNextStep,avoid}}。" },
-      { role: "user", content: JSON.stringify({ seller: input.sellerProfile, company: input.targetUrl, sources: card.sources.map(({ id, title, content }) => ({ id, title, content: content.slice(0, 2500) })) }) },
+      { role: "user", content: JSON.stringify({ seller: input.sellerProfile, company: input.targetUrl, sources: card.sources.map(({ id, title, content }) => ({ id, title, content: content.slice(0, 1_200) })) }) },
     ], ...(config.OPENAI_BASE_URL.includes("api.deepseek.com") ? { thinking: { type: "disabled" } } : {}) };
     const completion = await client.chat.completions.create(request as never);
     const content = completion.choices[0]?.message.content;
