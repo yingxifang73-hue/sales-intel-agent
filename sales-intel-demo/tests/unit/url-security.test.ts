@@ -26,4 +26,9 @@ describe("URL 安全和去重", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.contentHash).toBe(hashContent("同一段 正文"));
   });
+
+  it("仅在公共 DNS 确认后放行本机代理改写的测试地址", async () => {
+    await expect(assertPublicHttpUrl("https://www.sanyglobal.com", async () => [{ address: "198.18.0.80", family: 4 }], async () => [{ address: "104.18.18.1", family: 4 }])).resolves.toBe("https://www.sanyglobal.com/");
+    await expect(assertPublicHttpUrl("https://unsafe.example", async () => [{ address: "198.18.0.80", family: 4 }], async () => [{ address: "10.0.0.8", family: 4 }])).rejects.toThrow("公共 DNS");
+  });
 });

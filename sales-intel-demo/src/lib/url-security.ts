@@ -68,7 +68,30 @@ export async function defaultLookup(hostname: string): Promise<DnsRecord[]> {
   return nodeLookup(hostname, { all: true, verbatim: true });
 }
 
-export async function assertPublicHttpUrl(rawUrl: string, lookup: Lookup = defaultLookup): Promise<string> {
+export async function resolveWithPublicDns(hostname: string): Promise<DnsRecord[]> {
+  const records: DnsRecord[] = [];
+  for (const type of ["A", "AAAA"] as const) {
+    const response = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`, {
+      headers: { Accept: "application/dns-json" },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) continue;
+    const payload = (await response.json()) as { Answer?: Array<{ data?: string; type?: number }> };
+    for (const answer of payload.Answer ?? []) {
+      if ((answer.type === 1 || answer.type === 28) && answer.data && isIP(answer.data)) {
+        records.push({ address: answer.data, family: answer.type === 1 ? 4 : 6 });
+      }
+    }
+  }
+  return records;
+}
+
+function isLocalProxyAddress(address: string): boolean {
+  const [first, second] = address.split(".").map(Number);
+  return first === 198 && (second === 18 || second === 19);
+}
+
+export async function assertPublicHttpUrl(rawUrl: string, lookup: Lookup = defaultLookup, publicLookup: Lookup = resolveWithPublicDns): Promise<string> {
   const canonicalUrl = canonicalizeUrl(rawUrl);
   const hostname = new URL(canonicalUrl).hostname;
   if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
@@ -81,8 +104,18 @@ export async function assertPublicHttpUrl(rawUrl: string, lookup: Lookup = defau
   }
 
   const records = await lookup(hostname);
-  if (records.length === 0 || records.some((record) => isPrivateAddress(record.address))) {
+  if (records.length === 0) {
     throw new Error("目标地址解析到私有、保留或无效网络。");
+  }
+
+  if (records.some((record) => isPrivateAddress(record.address))) {
+    if (!records.every((record) => record.family === 4 && isLocalProxyAddress(record.address))) {
+      throw new Error("目标地址解析到私有、保留或无效网络。");
+    }
+    const publicRecords = await publicLookup(hostname);
+    if (publicRecords.length === 0 || publicRecords.some((record) => isPrivateAddress(record.address))) {
+      throw new Error("目标地址无法通过公共 DNS 验证为公网地址。");
+    }
   }
 
   return canonicalUrl;
