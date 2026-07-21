@@ -97,6 +97,8 @@ export const BattlecardSchema = z.object({
   opening: CitedTextSchema,
   risks: z.array(CitedTextSchema).max(5),
   sources: z.array(SourceSchema).min(1).max(20),
+  collectionNotes: z.array(z.string().trim().min(2).max(240)).max(10),
+  modelStatus: z.enum(["used", "evidence_based", "not_configured"]),
   warnings: z.array(z.string().trim().min(2).max(240)).max(10),
 });
 
