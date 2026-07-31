@@ -1,17 +1,46 @@
 import { NextResponse } from "next/server";
-import { getConfig } from "@/lib/config";
-import { DemoCrawler, HybridCrawler, runResearch } from "@/lib/research";
+import { start } from "workflow/api";
+import { createResearchJob, setResearchJobWorkflowRun } from "@/lib/research-jobs";
+import { finishTrialRun, reserveTrialRun, tokenFromRequest } from "@/lib/trial";
 import { ResearchInputSchema } from "@/lib/types";
+import { runSalesResearchWorkflow } from "@/workflows/research-workflow";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  let input;
   try {
-    const input = ResearchInputSchema.parse(await request.json());
-    const config = getConfig();
-    const crawler = config.E2E_FAKE_PROVIDERS === "true" ? new DemoCrawler() : new HybridCrawler(config.FIRECRAWL_API_KEY);
-    return NextResponse.json(await runResearch(input, crawler, config.ENABLE_LLM_ENHANCEMENT === "true" ? config : undefined));
+    input = ResearchInputSchema.parse(await request.json());
   } catch (error) {
-    const rawMessage = error instanceof Error ? error.message : "生成作战卡时发生未知错误。";
-    const message = /DNS resolution failed|ENOTFOUND/i.test(rawMessage) ? "暂时无法解析目标官网地址，请稍后重试或补充官网资料。" : rawMessage;
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "请求参数不合法。" }, { status: 400 });
+  }
+
+  let accessToken: string;
+  let reservation;
+  try {
+    accessToken = tokenFromRequest(request) ?? "";
+    reservation = await reserveTrialRun(accessToken);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "请先输入有效兑换码。" }, { status: 403 });
+  }
+
+  try {
+    const job = await createResearchJob(input, reservation.runId, accessToken);
+    const run = await start(runSalesResearchWorkflow, [job.id]);
+    await setResearchJobWorkflowRun(job.id, run.runId);
+    return NextResponse.json({ researchId: job.id, status: "queued", progress: 0 }, {
+      status: 202,
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (error) {
+    try {
+      await finishTrialRun(accessToken, reservation.runId, false);
+    } catch (settlementError) {
+      console.error("Trial run release failed:", settlementError instanceof Error ? settlementError.message : "unknown");
+    }
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to queue the research workflow." },
+      { status: 500 },
+    );
   }
 }

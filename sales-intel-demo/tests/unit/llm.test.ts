@@ -1,111 +1,410 @@
-import { describe, expect, it } from "vitest";
-import { normalizeCompanyResearch, normalizeSalesStrategy } from "@/lib/llm";
-import type { Battlecard } from "@/lib/types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildSafeProductMatch,
+  enhanceWithLlm,
+  ensureConversationDepth,
+  ensureDiscoveryOpportunity,
+  ensureOpportunityDepth,
+  extractSourceFactBundles,
+} from "@/lib/llm";
+import { SourceSchema, type SalesReport, type ResearchInput, type Source } from "@/lib/types";
 
 const sourceId = "source-01";
-const cited = (text: string) => ({ text, sourceIds: [sourceId] });
-const pain = { ...cited("待验证：渠道与生产信息可能需要更快协同。"), businessImpact: "可能影响交付响应效率。", confidenceLabel: "低" as const, validationQuestion: "目前最难协调的环节是什么？" };
-const questions = ["当前生产计划如何同步？", "哪个环节最影响交付？", "如何衡量改进效果？", "谁会参与方案评估？", "是否有适合先验证的产线？"].map((question) => ({ question, purpose: "验证业务现状。" }));
-const card: Battlecard = {
-  overview: cited("已采集目标公司的公开资料。"),
-  signals: [cited("官网包含产品和市场信息。")],
-  painHypotheses: [pain],
-  talkTrack: { objective: "验证业务需求。", opening: cited("想了解当前业务情况。"), discoveryQuestions: questions.slice(0, 3), valueBridge: "谨慎验证产品关联。", recommendedNextStep: "安排需求交流。", avoid: ["不要把推断当作事实。"] },
-  productMappings: [{ ...cited("结合公开信号验证产品机会。"), sellerCapability: "冰箱制造器", expectedValue: "需要沟通验证。" }],
-  questions,
-  opening: cited("想了解当前业务情况。"),
-  risks: [cited("公开资料有限。")],
-  companyOverview: { companyIntroduction: cited("已采集公司资料，等待中文研究。"), productsAndServices: [cited("已采集产品资料，等待中文研究。")], industryAndCoverage: cited("已采集行业资料，等待中文研究。"), recentUpdates: [cited("已采集动态资料，等待中文研究。")] },
-  companyAnalysis: { businessModel: cited("商业模式等待中文研究。"), productPositioning: cited("产品定位等待中文研究。"), targetCustomers: cited("目标客户等待中文研究。"), competitionObservation: cited("竞争信息等待中文研究。"), painHypotheses: [pain] },
-  salesStrategy: { entryPoints: [cited("结合公开信号验证业务需求。")], recommendation: cited("冰箱制造器的具体关联需要沟通验证。"), opening: cited("想了解当前业务情况。"), potentialNeeds: [cited("潜在需求需要沟通验证。")], discoveryQuestions: questions, recommendedNextStep: "安排需求交流。", avoid: ["不要把推断当作事实。"] },
-  sources: [{ id: sourceId, url: "https://example.com", canonicalUrl: "https://example.com/", title: "目标公司官网", content: "Company public information.", sourceType: "official", fetchedAt: "2026-07-21T00:00:00.000Z", contentHash: "a".repeat(64) }],
-  collectionNotes: ["官网资料已采集。"],
-  modelStatus: "evidence_based",
-  warnings: [],
+
+function baseReport(): SalesReport {
+  return {
+    reportMeta: { companyName: "测试公司", targetUrl: "https://example.com", sellerProductName: "销售助手", collectedAt: new Date().toISOString(), status: "仅采集" },
+    salesVerdict: {
+      contactSuggestion: { value: "建议联系", status: "verified", sourceIds: [sourceId] },
+      recommendationReason: { value: "有业务信号", status: "inferred", sourceIds: [sourceId] },
+      keyCustomerSignals: [{ value: "扩产信号", status: "verified", sourceIds: [sourceId] }],
+      priorityContactRole: { value: "采购经理", status: "inferred", sourceIds: [sourceId] },
+      priorityOpportunity: { value: "待验证：供应链升级", status: "inferred", sourceIds: [sourceId] },
+      recommendedNextStep: { value: "安排沟通", status: "verified", sourceIds: [] },
+    },
+    customerIntelligence: {
+      companyOverview: { value: "测试公司是制造企业。", status: "verified", sourceIds: [sourceId] },
+      productsAndServices: [{ value: "零部件制造", status: "verified", sourceIds: [sourceId] }],
+      targetCustomersAndMarket: { value: "服务国内外品牌。", status: "verified", sourceIds: [sourceId] },
+      businessModel: { value: "OEM 代工", status: "verified", sourceIds: [sourceId] },
+      productPositioning: { value: "中高端定位", status: "verified", sourceIds: [sourceId] },
+      scaleAndCapability: { value: "年产 500 万件", status: "verified", sourceIds: [sourceId] },
+      recentUpdates: [{ value: "2026年7月：产线扩建", status: "verified", sourceIds: [sourceId] }],
+      informationGaps: [],
+    },
+    opportunityAnalysis: {
+      opportunities: [{
+        signal: { value: "产线扩建", status: "verified", sourceIds: [sourceId] },
+        painPoint: { value: "待验证：协同需求上升", status: "inferred", sourceIds: [sourceId] },
+        businessImpact: { value: "可能影响交付效率", status: "inferred", sourceIds: [] },
+        productMatch: { value: "我方协同工具可帮助同步", status: "inferred", sourceIds: [] },
+        validationQuestion: { value: "目前协同最困难的环节？", status: "inferred", sourceIds: [] },
+        confidence: { value: "中 — 基于明确扩产信号", status: "inferred", sourceIds: [] },
+      }],
+      currentSolutionOrCompetition: { value: "未找到明确方案", status: "insufficient", sourceIds: [] },
+      overallConfidence: { value: "中", status: "inferred", sourceIds: [] },
+    },
+    conversationPlan: {
+      recommendedContact: { value: "采购经理", status: "inferred", sourceIds: [sourceId] },
+      communicationGoal: { value: "验证机会", status: "inferred", sourceIds: [] },
+      opening30s: { value: "注意到贵司完成产线扩建……", status: "verified", sourceIds: [sourceId] },
+      valueBridge: { value: "从扩建信号连接产品价值", status: "inferred", sourceIds: [sourceId] },
+      discoveryQuestions: [
+        { question: "问题一", purpose: "验证" },
+        { question: "问题二", purpose: "确认" },
+        { question: "问题三", purpose: "推进" },
+      ],
+      objectionResponses: [],
+      proofMaterials: [],
+      nextStep: { value: "安排需求交流", status: "verified", sourceIds: [] },
+      avoidTopics: ["不能假设"],
+    },
+    coverage: { directChannels: 1, firecrawlChannels: 0, gapFilledCategories: [] },
+    metrics: { durationMs: 1000, sourceCount: 1, officialSourceCount: 1, crawlerCalls: 1, llmCalls: 0 },
+    sources: [{
+      id: sourceId, url: "https://example.com", canonicalUrl: "https://example.com",
+      title: "官网", content: "公开内容超过 100 字：包含公司、产品、服务、市场、产能等可核验信息。足以支撑调研。", sourceType: "official",
+      fetchedAt: new Date().toISOString(), contentHash: "a".repeat(64),
+    }],
+    collectionNotes: [],
+    mainReferenceLinks: [{ title: "官网", url: "https://example.com" }],
+  };
+}
+
+const input: ResearchInput = {
+  targetUrl: "https://example.com",
+  preset: "general",
+  sellerProfile: {
+    productName: "销售助手",
+    valueProposition: "帮助销售更快准备客户拜访",
+    targetCustomer: "B2B 销售团队",
+    customerProblems: ["售前准备耗时"],
+    proofPoints: ["输出可追溯来源"],
+    callToAction: "安排一次 20 分钟需求交流",
+  },
 };
 
-const companyResearch = {
-  companyOverview: {
-    companyIntroduction: cited("美的是一家全球化家电制造企业，业务覆盖多个家电品类。"),
-    productsAndServices: [cited("主要产品包括冰箱、空调、洗衣设备及相关智慧家居产品。")],
-    industryAndCoverage: cited("公司位于家电制造与智慧家居行业，业务覆盖多个国家和地区。"),
-    recentUpdates: [cited("官网近期披露了海外合作与节能产品方面的业务动态。")],
-  },
-  companyAnalysis: {
-    businessModel: cited("公司通过家电产品销售、渠道合作及相关解决方案服务市场。"),
-    productPositioning: cited("产品定位强调家电制造能力、智能化体验和全球市场覆盖。"),
-    targetCustomers: cited("目标客户包括家庭消费者、渠道合作伙伴及部分商业客户。"),
-    competitionObservation: cited("公开资料不足以确认具体竞争比较，建议沟通中验证现有方案与评估标准。"),
-    painHypotheses: [pain],
-  },
-};
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
-describe("完整报告模型结果归一化", () => {
-  it("接受带有效来源的中文公司研究", () => {
-    const result = normalizeCompanyResearch(JSON.stringify(companyResearch), card);
-    expect(result?.companyOverview.companyIntroduction.text).toContain("全球化家电制造企业");
-    expect(result?.companyAnalysis.painHypotheses).toHaveLength(1);
+function sseJson(value: unknown): Response {
+  const payload = JSON.stringify(value);
+  const body = `data: ${JSON.stringify({ choices: [{ delta: { content: payload } }] })}\n\ndata: [DONE]\n\n`;
+  return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
+
+describe("per-source extraction reliability", () => {
+  it("processes every eligible source instead of truncating the fact stage to twelve sources", async () => {
+    const sources: Source[] = Array.from({ length: 17 }, (_, index) => ({
+      id: `official-${index}`,
+      url: `https://example.com/page-${index}`,
+      canonicalUrl: `https://example.com/page-${index}`,
+      title: `官网业务页面 ${index}`,
+      content: `测试公司在第${index}个公开页面介绍产品、服务、市场与业务能力。该页面包含可以用于客户画像的完整公司事实。`,
+      sourceType: "official",
+      fetchedAt: new Date().toISOString(),
+      contentHash: String(index).padEnd(64, "a").slice(0, 64),
+    }));
+    const config = {
+      OPENAI_API_KEY: undefined,
+      OPENAI_BASE_URL: "https://api.openai.com/v1",
+      OPENAI_MODEL: "gpt-test",
+    } as import("@/lib/config").AppConfig;
+
+    const result = await extractSourceFactBundles(config, input, sources);
+
+    expect(result.bundles).toHaveLength(17);
+    expect(new Set(result.bundles.map((bundle) => bundle.sourceId)).size).toBe(17);
   });
 
-  it("竞争资料不足时保留诚实的信息缺口，不让单个栏位拖垮报告", () => {
-    const incompleteCompetition = structuredClone(companyResearch);
-    incompleteCompetition.companyAnalysis.competitionObservation.sourceIds = [];
-    const result = normalizeCompanyResearch(JSON.stringify(incompleteCompetition), card);
-    expect(result?.companyAnalysis.competitionObservation.text).toContain("信息缺口");
-    expect(result?.companyAnalysis.competitionObservation.sourceIds).toEqual([sourceId]);
+  it("extracts six sources in two smaller structured provider requests without dropping any source", async () => {
+    const sources: Source[] = Array.from({ length: 6 }, (_, index) => ({
+      id: `batch-source-${index}`,
+      url: `https://example.com/products/page-${index}`,
+      canonicalUrl: `https://example.com/products/page-${index}`,
+      title: `产品能力 ${index}`,
+      content: `测试公司第${index}项产品能力面向企业客户提供业务处理、统计分析和系统接口服务。`.repeat(5),
+      sourceType: "official",
+      fetchedAt: new Date().toISOString(),
+      contentHash: String(index).padEnd(64, "b").slice(0, 64),
+    }));
+    const responsePayload = {
+      bundles: sources.map((source, index) => ({
+        sourceId: source.id,
+        productsAndServices: [{
+          value: `第${index}项产品提供企业级业务处理、统计分析和系统接口能力。`,
+          status: "verified",
+          sourceIds: [source.id],
+        }],
+      })),
+    };
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(sseJson(responsePayload)));
+    vi.stubGlobal("fetch", fetchMock);
+    const config = {
+      OPENAI_API_KEY: "test-key",
+      OPENAI_BASE_URL: "https://api.example.com",
+      OPENAI_MODEL: "qwen-test",
+      MODEL_REQUEST_TIMEOUT_MS: 5_000,
+    } as import("@/lib/config").AppConfig;
+
+    const result = await extractSourceFactBundles(config, input, sources);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.outcomes.facts).toBe("success");
+    expect(result.bundles).toHaveLength(6);
+    expect(new Set(result.bundles.map((bundle) => bundle.sourceId)).size).toBe(6);
   });
 
-  it("拒绝英文主导、HTML 实体和未知来源", () => {
-    const english = structuredClone(companyResearch);
-    english.companyOverview.companyIntroduction.text = "Midea is the world's largest producer of major appliances.";
-    expect(normalizeCompanyResearch(JSON.stringify(english), card)).toBeUndefined();
-    const entity = structuredClone(companyResearch);
-    entity.companyOverview.companyIntroduction.text = "美的是 World&#39;s No.1 家电品牌。";
-    expect(normalizeCompanyResearch(JSON.stringify(entity), card)).toBeUndefined();
-    const unknown = structuredClone(companyResearch);
-    unknown.companyOverview.companyIntroduction.sourceIds = ["unknown-01"];
-    expect(normalizeCompanyResearch(JSON.stringify(unknown), card)).toBeUndefined();
+  it("retries a transient timeout and keeps the successful structured bundle", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new DOMException("The operation was aborted due to timeout", "TimeoutError"))
+      .mockResolvedValueOnce(sseJson({
+        companyOverview: {
+          value: "SHOPLINE 是为商家提供建站、支付、营销与零售工具的一体化商业平台。",
+          status: "verified",
+          sourceIds: ["official-source"],
+        },
+        productsAndServices: [{
+          value: "平台提供在线商店、支付、营销自动化和销售点管理能力。",
+          status: "verified",
+          sourceIds: ["official-source"],
+        }],
+        targetCustomersAndMarket: {
+          value: "主要服务需要开展线上与线下零售业务的品牌和商家。",
+          status: "verified",
+          sourceIds: ["official-source"],
+        },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const officialSource: Source = {
+      id: "official-source",
+      url: "https://www.shopline.com/about",
+      canonicalUrl: "https://www.shopline.com/about",
+      title: "About SHOPLINE",
+      content: "SHOPLINE is a unified commerce platform for merchants. It provides online stores, payments, marketing automation, point-of-sale and customer management tools for brands selling across markets. ".repeat(5),
+      sourceType: "official",
+      fetchedAt: new Date().toISOString(),
+      contentHash: "b".repeat(64),
+    };
+    const config = {
+      OPENAI_API_KEY: "test-key",
+      OPENAI_BASE_URL: "https://api.example.com",
+      OPENAI_MODEL: "qwen-test",
+      MODEL_REQUEST_TIMEOUT_MS: 5_000,
+    } as import("@/lib/config").AppConfig;
+
+    const result = await extractSourceFactBundles(config, input, [officialSource]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.outcomes.facts).toBe("success");
+    expect(result.rejected).toEqual([]);
+    expect(result.bundles[0]?.companyOverview?.value).toContain("一体化商业平台");
   });
 
-  it("销售策略必须关联用户产品、客户信号和五个问题", () => {
-    const raw = JSON.stringify({ salesStrategy: { entryPoints: [cited("从美的公开披露的冰箱与节能产品布局切入，验证生产环节需求。")], recommendation: cited("冰箱制造器与美的冰箱生产场景可能存在关联，但具体能力和适配范围需要沟通验证。"), opening: cited("了解到贵司持续推进冰箱与节能产品布局，我们提供冰箱制造器，想先了解当前生产环节最希望改善的问题。"), potentialNeeds: [cited("待验证：冰箱生产环节可能关注设备适配、效率和质量稳定性。")], discoveryQuestions: questions, recommendedNextStep: "选择一条具体产线，安排一次需求澄清并确认设备适配条件。", avoid: ["不要在未确认产品能力前承诺具体效率指标。"] } });
-    const result = normalizeSalesStrategy(raw, card, "冰箱制造器");
-    expect(result?.salesStrategy.recommendation.text).toContain("冰箱制造器");
-    expect(result?.salesStrategy.discoveryQuestions).toHaveLength(5);
+  it("repairs a malformed structured response once before falling back to deterministic facts", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseJson("这不是可用的结构化结果"))
+      .mockResolvedValueOnce(sseJson({
+        companyOverview: { value: "示例企业提供面向品牌商家的数字化经营服务。", status: "verified", sourceIds: ["retry-source"] },
+        productsAndServices: [{ value: "提供在线交易、营销自动化和客户运营工具。", status: "verified", sourceIds: ["retry-source"] }],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const source: Source = {
+      id: "retry-source", url: "https://example.com/about", canonicalUrl: "https://example.com/about", title: "公司介绍",
+      content: "示例企业提供面向品牌商家的数字化经营服务，并提供在线交易、营销自动化和客户运营工具。".repeat(4),
+      sourceType: "official", fetchedAt: new Date().toISOString(), contentHash: "c".repeat(64),
+    };
+    const config = {
+      OPENAI_API_KEY: "test-key", OPENAI_BASE_URL: "https://api.example.com", OPENAI_MODEL: "qwen-test", MODEL_REQUEST_TIMEOUT_MS: 5_000,
+    } as import("@/lib/config").AppConfig;
+
+    const result = await extractSourceFactBundles(config, input, [source]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.outcomes.facts).toBe("success");
+    expect(result.bundles[0]?.companyOverview?.value).toContain("数字化经营服务");
+  });
+});
+
+describe("enhanceWithLlm (无 API key 降级)", () => {
+  it("无 API key 时直接返回仅采集中状态", async () => {
+    const config = {
+      OPENAI_API_KEY: undefined as string | undefined,
+      OPENAI_BASE_URL: "https://api.openai.com/v1",
+      OPENAI_MODEL: "gpt-4.1-mini",
+    } as import("@/lib/config").AppConfig;
+    const report = baseReport();
+    const result = await enhanceWithLlm(report, input, report.sources, config);
+    // 无 key 时保持原样，note 说明未配置
+    expect(result.reportMeta.status).toBe("仅采集");
+    expect(result.collectionNotes.some((n) => n.includes("未配置中文研究模型"))).toBe(true);
+    expect(result.customerIntelligence.companyOverview.status).toBe("verified");
   });
 
-  it("兼容模型返回的角度/信号/关联结构，并继承已校验证据", () => {
-    const raw = JSON.stringify({ salesStrategy: {
-      entryPoints: [{ angle: "冰箱制造器可能提升冰箱生产效率。", signal: "公开资料显示美的覆盖冰箱等家电品类。", relevance: "验证现有生产设备的改造或更新计划。" }],
-      recommendation: "建议将冰箱制造器作为待验证方案，不预设具体能力，先确认产线环节和设备要求。",
-      opening: "了解到贵司覆盖冰箱等家电品类，我们提供冰箱制造器，想先了解当前产线是否有设备更新或改造计划。",
-      potentialNeeds: [{ need: "待验证：冰箱产线可能存在设备更新需求。", basis: "依据公开产品布局提出，不视为已确认事实。" }],
-      discoveryQuestions: questions,
-      recommendedNextStep: "安排一次需求交流，确认产线、设备要求和参与角色。",
-      avoid: ["不要承诺未提供的产品参数。"],
-    } });
-    const result = normalizeSalesStrategy(raw, card, "冰箱制造器");
-    expect(result?.salesStrategy.entryPoints[0].text).toContain("公开资料");
-    expect(result?.salesStrategy.entryPoints[0].text).not.toContain("提升冰箱生产效率");
-    expect(result?.salesStrategy.recommendation.sourceIds).toEqual([sourceId]);
-    expect(result?.salesStrategy.recommendation.text).toContain("不能据此推断功能或效果");
-    expect(result?.salesStrategy.opening.text).not.toContain("提升效率");
+  it("report 结构完整性不因 LLM 降级而变", async () => {
+    const config = {
+      OPENAI_API_KEY: undefined as string | undefined,
+      OPENAI_BASE_URL: "https://api.openai.com/v1",
+      OPENAI_MODEL: "gpt-4.1-mini",
+    } as import("@/lib/config").AppConfig;
+    const report = baseReport();
+    const result = await enhanceWithLlm(report, input, report.sources, config);
+    // 四个模块都存在
+    expect(result.salesVerdict).toBeDefined();
+    expect(result.customerIntelligence).toBeDefined();
+    expect(result.opportunityAnalysis).toBeDefined();
+    expect(result.conversationPlan).toBeDefined();
+    // 底部链接保留
+    expect(result.mainReferenceLinks.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("模型切入点都夹带产品能力时，从公司产品证据生成安全切入点", () => {
-    const evidenceCard = structuredClone(card);
-    evidenceCard.companyOverview.productsAndServices = [cited("目标公司公开产品包括冰箱、空调和洗衣设备。")];
-    const raw = JSON.stringify({ salesStrategy: {
-      entryPoints: [{ angle: "冰箱制造器可以提升效率。", signal: "冰箱制造器适合该企业。", relevance: "冰箱制造器能够降低成本。" }],
-      recommendation: "建议了解冰箱制造器的适配情况。",
-      opening: "我们提供冰箱制造器，想了解贵司需求。",
-      potentialNeeds: ["待验证：冰箱制造环节可能有设备更新需求。"],
-      discoveryQuestions: questions,
-      recommendedNextStep: "安排需求交流并确认产品能力。",
-      avoid: ["不要承诺未提供的产品效果。"],
-    } });
-    const result = normalizeSalesStrategy(raw, evidenceCard, "冰箱制造器");
-    expect(result?.salesStrategy.entryPoints[0].text).toContain("产品包括冰箱");
-    expect(result?.salesStrategy.entryPoints[0].text).not.toContain("降低成本");
+  it("报告生成边界会再次修复历史或缓存中的空来源标题", async () => {
+    const config = {
+      OPENAI_API_KEY: undefined as string | undefined,
+      OPENAI_BASE_URL: "https://api.openai.com/v1",
+      OPENAI_MODEL: "gpt-4.1-mini",
+    } as import("@/lib/config").AppConfig;
+    const report = baseReport();
+    report.sources[0]!.title = "";
+
+    const result = await enhanceWithLlm(report, input, report.sources, config);
+
+    expect(result.sources[0]?.title).toBe("example.com 官网");
+    expect(() => SourceSchema.parse(result.sources[0])).not.toThrow();
+  });
+});
+
+describe("机会兜底", () => {
+  it("没有直接机会时不再强制生成通用机会", () => {
+    const report = baseReport();
+    const result = ensureDiscoveryOpportunity(input, report.customerIntelligence, {
+      ...report.opportunityAnalysis,
+      opportunities: [],
+    });
+
+    expect(result.opportunities).toHaveLength(0);
+  });
+
+  it("话术兜底只引用清理后的完整事实句，不复制整段网页导航", () => {
+    const report = baseReport();
+    const navigation = "首页 关于我们 集团简介 董事长简介 企业荣誉 集团新闻 媒体报道 品牌专区 产品中心 投资者关系 人才招聘 联系我们";
+    const fact = "测试公司成立于2010年，主要从事工业设备研发与制造。";
+    report.customerIntelligence.recentUpdates = [{
+      value: `${navigation} ${fact}`,
+      status: "verified",
+      sourceIds: [sourceId],
+    }];
+
+    const opportunity = ensureDiscoveryOpportunity(input, report.customerIntelligence, {
+      ...report.opportunityAnalysis,
+      opportunities: [],
+    });
+    const conversation = ensureConversationDepth(
+      input,
+      report.customerIntelligence,
+      opportunity,
+      {
+        ...report.conversationPlan,
+        opening30s: { status: "insufficient", sourceIds: [] },
+      },
+    );
+
+    expect(opportunity.opportunities).toHaveLength(0);
+    expect(conversation.opening30s.value).toContain(fact);
+    expect(conversation.opening30s.value).not.toContain("人才招聘");
+  });
+
+  it("does not turn generic company context into two fabricated opportunities", () => {
+    const report = baseReport();
+    const result = ensureOpportunityDepth(input, report.customerIntelligence, {
+      ...report.opportunityAnalysis,
+      opportunities: [],
+    });
+
+    expect(result.opportunities).toHaveLength(0);
+  });
+
+  it("fills a complete first-conversation plan when a model stage degrades", () => {
+    const report = baseReport();
+    const result = ensureConversationDepth(
+      input,
+      report.customerIntelligence,
+      ensureOpportunityDepth(input, report.customerIntelligence, { ...report.opportunityAnalysis, opportunities: [] }),
+      {
+        ...report.conversationPlan,
+        recommendedContact: { status: "insufficient", sourceIds: [] },
+        communicationGoal: { status: "insufficient", sourceIds: [] },
+        opening30s: { status: "insufficient", sourceIds: [] },
+        valueBridge: { status: "insufficient", sourceIds: [] },
+        discoveryQuestions: [],
+        objectionResponses: [],
+        nextStep: { status: "insufficient", sourceIds: [] },
+      },
+    );
+
+    expect(result.opening30s.value).toContain(input.sellerProfile.productName);
+    expect(result.opening30s.value?.length).toBeGreaterThan(60);
+    expect(result.discoveryQuestions.length).toBeGreaterThanOrEqual(3);
+    expect(result.objectionResponses.length).toBeGreaterThanOrEqual(1);
+    expect(result.nextStep.value?.length).toBeGreaterThan(24);
+  });
+});
+
+describe("模型阶段超时降级", () => {
+  it("facts 阶段全部超时且报告已有客户画像时降级为 partial 而非 failed", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const config = {
+      OPENAI_API_KEY: "test-key",
+      OPENAI_BASE_URL: "https://api.example.com",
+      OPENAI_MODEL: "qwen-test",
+      MODEL_REQUEST_TIMEOUT_MS: 5_000,
+    } as import("@/lib/config").AppConfig;
+    const report = baseReport(); // 已有完整 customerIntelligence
+
+    const result = await enhanceWithLlm(report, input, report.sources, config, undefined, {
+      stages: ["facts", "quality_review"],
+    });
+
+    expect(result.qualityAudit?.stageOutcomes.facts).toBe("partial");
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("opportunity 阶段全部超时且报告已有机会时降级为 partial 而非 failed", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const config = {
+      OPENAI_API_KEY: "test-key",
+      OPENAI_BASE_URL: "https://api.example.com",
+      OPENAI_MODEL: "qwen-test",
+      MODEL_REQUEST_TIMEOUT_MS: 5_000,
+    } as import("@/lib/config").AppConfig;
+    const report = baseReport(); // 已有 1 条 opportunity
+
+    const result = await enhanceWithLlm(report, input, report.sources, config, undefined, {
+      stages: ["opportunity", "quality_review"],
+    });
+
+    expect(result.qualityAudit?.stageOutcomes.opportunity).toBe("partial");
+  });
+});
+
+describe("产品名称驱动的匹配分析", () => {
+  it("将汽车业务与车规离线语音芯片形成明确但非事实性的匹配判断", () => {
+    const result = buildSafeProductMatch(
+      { ...input, customIndustry: "新能源汽车制造", sellerProfile: { ...input.sellerProfile, productName: "车规级离线 AI 语音算力芯片" } },
+      "目标公司主营新能源汽车与乘用车业务。",
+      [sourceId],
+    );
+    expect(result.status).toBe("inferred");
+    expect(result.value).toContain("智能座舱离线语音交互");
+    expect(result.sourceIds).toEqual([sourceId]);
   });
 });

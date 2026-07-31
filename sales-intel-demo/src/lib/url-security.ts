@@ -4,7 +4,7 @@ import { isIP } from "node:net";
 export type DnsRecord = { address: string; family: number };
 export type Lookup = (hostname: string) => Promise<DnsRecord[]>;
 
-const trackingParameter = /^(utm_|fbclid$|gclid$|mc_[a-z_]+$)/i;
+const trackingParameter = /^(utm_|fbclid$|gclid$|mc_[a-z_]+$|srsltid$|ref$|referrer$|source$|_ga$)/i;
 
 export function canonicalizeUrl(rawUrl: string): string {
   const url = new URL(rawUrl);

@@ -2,9 +2,16 @@ node_modules/
 .next/
 playwright-report/
 test-results/
+diagnostics/
 .env
 .env.local
 data/*.db
 data/*.db-shm
 data/*.db-wal
 *.tsbuildinfo
+
+.vercel
+.swc
+
+.vercel
+.env*
