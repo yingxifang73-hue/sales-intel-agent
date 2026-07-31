@@ -321,6 +321,8 @@ export function buildBroadSearchQueries(
   const queries: string[] = [];
   const productTerms = compactProductTerms(input);
   const productFocus = productTerms.slice(0, 5).join(" ");
+  const sellerProduct = input.sellerProfile.productName;
+  const sellerKeywords = compactProductTerms(input).slice(0, 3).join(" ");
 
   // Identity comes first. Otherwise seller-product queries can crowd the
   // official homepage/about page out of the fixed search budget.
@@ -329,6 +331,15 @@ export function buildBroadSearchQueries(
   queries.push(`${brand} 所属公司 旗下 官方`);
   queries.push(`site:${hostname} 关于 公司 产品 服务`);
 
+  // Cross-product search: find third-party coverage about the target company
+  // AND the seller's product category. This discovers supplier relationships,
+  // technology adoption, RFPs, and industry reports — not just the official site.
+  if (sellerKeywords) {
+    queries.push(`${brand} ${sellerKeywords} 采购 供应商 方案 合作`);
+    queries.push(`${brand} ${sellerKeywords} 技术 选型 平台 系统`);
+    queries.push(`${brand} 智能硬件 IOT 芯片 语音 合作伙伴`);
+  }
+
   if (productFocus) {
     queries.push(`${brand} ${productFocus}`);
     queries.push(`site:${hostname} ${productFocus}`);
@@ -336,11 +347,12 @@ export function buildBroadSearchQueries(
     queries.push(`${brand} ${productFocus} 自研 现有方案 合作`);
   }
   queries.push(`${brand} 客户 市场 合作伙伴 案例`);
+  queries.push(`${brand} 供应商 采购 技术栈 软件`);
   queries.push(`${brand} 新闻 公告 发布 最新动态`);
   queries.push(`${brand} 官方 联系方式 电话 邮箱 地址`);
   if (researchFocus.length) queries.push(`${brand} ${researchFocus.slice(0, 3).join(" ")}`);
 
-  return [...new Set(queries)].slice(0, 12);
+  return [...new Set(queries)].slice(0, 16);
 }
 
 /** 从官网 Markdown 提取品牌名 */
