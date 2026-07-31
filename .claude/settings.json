@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "PowerShell($redeemResp = Invoke-RestMethod -Uri \"https://sales-intel-agent.onrender.com/api/trial/redeem\" -Method Post -Body '{\"code\":\"SIA-FREE-UNLIMITED\"}' -ContentType \"application/json\"; $token = $redeemResp.accessToken; Write-Host \"Token: $\\($token.Substring\\(0,16\\)\\)...\"; $researchResp = Invoke-RestMethod -Uri \"https://sales-intel-agent.onrender.com/api/research\" -Method Post -Body '{\"targetUrl\":\"https://www.xiaopeng.com\",\"preset\":\"general\",\"sellerProfile\":{\"productName\":\"AI语音芯片\",\"valueProposition\":\"低功耗离线语音识别\",\"targetCustomer\":\"智能硬件制造商\",\"customerProblems\":[\"语音识别延迟高\",\"云端依赖强\"],\"proofPoints\":[],\"callToAction\":\"安排技术交流会议\"}}' -ContentType \"application/json\" -Headers @{\"Authorization\"=\"Bearer $token\"}; Write-Host \"Research ID: $\\($researchResp.researchId\\)\")"
     ]
   }
 }

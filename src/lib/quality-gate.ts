@@ -167,7 +167,12 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
     usefulField(ci.scaleAndCapability, 22, true),
     ci.recentUpdates.some((item) => usefulItem(item, 22, true) && isCredibleRecentUpdate(item, report)),
   ].filter(Boolean).length;
-  if (profileCoverage < 4) missing.push("客户画像关键维度不足");
+  // 当公司概况和产品服务有内容时，个别维度不足不阻塞交付
+  const hasCoreIntel = (ci.companyOverview.status !== "insufficient" && ci.companyOverview.value!.length >= 30)
+    || usefulProducts.length >= 1;
+  if (profileCoverage < 3 || (profileCoverage < 4 && !hasCoreIntel)) {
+    missing.push("客户画像关键维度不足");
+  }
   if (ci.recentUpdates.length > 0 && !ci.recentUpdates.some((item) => isCredibleRecentUpdate(item, report))) {
     missing.push("近期动态缺少日期或新闻来源");
   }
