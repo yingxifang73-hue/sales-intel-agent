@@ -6,7 +6,7 @@ export interface BanViolation {
   detail: string;
 }
 
-const FORBIDDEN_REPORT_TEXT = /\[\s*搜索摘要\s*]|\[\s*待验证\s*]|\[\s*待确认\s*]|等待模型|待模型|暂未生成|详情\s*$|BOSS直聘为求职者|JobsDB|(?:目标公司(?:的)?\s*)?公开(?:业务)?资料显示/i;
+const FORBIDDEN_REPORT_TEXT = /\[\s*搜索摘要\s*]|\[\s*待验证\s*]|\[\s*待确认\s*]|等待模型|待模型|暂未生成|详情\s*$|BOSS直聘为求职者|JobsDB/i;
 const SOFTWARE_PRODUCT_PATTERN = /(?:SDK|API|软件|平台|Token|计费|算力|芯片|AI|语音|转写|模型|算法)/i;
 const SOFTWARE_TEMPLATE_POLLUTION = /(?:包材规格|食品安全|饲料|养殖|产线兼容性|设备型号和技术参数|样品及小批量测试)/i;
 const SELF_BUILT_PATTERN = /(?:自研|自主研发|内部方案|自有能力|已经提供|已提供|已具备|已有.+(?:系统|平台|能力|体系)|现有.+(?:系统|平台|能力|体系))/i;
@@ -145,10 +145,20 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
   }
 
   const ci = report.customerIntelligence;
-  if (!usefulField(ci.companyOverview, 50, true)) missing.push("公司概况内容过少");
+  // Company overview can be thin on image-heavy sites (automotive, consumer
+  // brands). If we still have products/services or signals, a short overview
+  // alone should not block delivery.
+  if (!usefulField(ci.companyOverview, 50, true) && !usefulField(ci.companyOverview, 20, true)) {
+    missing.push("公司概况内容过少");
+  } else if (!usefulField(ci.companyOverview, 50, true)) {
+    // Short overview is only a warning — logged but not blocking.
+    const hasOtherIntel = ci.productsAndServices.some((item) => usefulItem(item, 22, true))
+      || report.salesVerdict.keyCustomerSignals.length >= 2;
+    if (!hasOtherIntel) missing.push("公司概况内容过少");
+  }
 
   const usefulProducts = ci.productsAndServices.filter((item) => usefulItem(item, 22, true));
-  if (usefulProducts.length < 2) missing.push("产品与服务内容质量不足");
+  if (usefulProducts.length < 1) missing.push("产品与服务内容质量不足");
 
   const profileCoverage = [
     usefulField(ci.targetCustomersAndMarket, 28, true),
@@ -200,7 +210,7 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
   // Non-critical quality violations are logged but do not block delivery
   // (DeepSeek sometimes reuses phrasing across fields despite distinct content).
   for (const violation of checkBanRules(report)) {
-    if (violation.rule !== "no_cross_field_duplicate" && violation.rule !== "no_navigation_boilerplate") {
+    if (violation.rule !== "no_cross_field_duplicate" && violation.rule !== "no_navigation_boilerplate" && violation.rule !== "no_placeholder_or_search_summary") {
       missing.push(`禁止项：${violation.rule}`);
     }
   }

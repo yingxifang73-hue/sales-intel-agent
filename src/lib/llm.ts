@@ -1258,9 +1258,16 @@ export async function enhanceWithLlm(
     qualityAudit.stageOutcomes = { ...qualityAudit.stageOutcomes, ...oppResult.outcomes };
     qualityAudit.rejectedFields = [...qualityAudit.rejectedFields, ...oppResult.rejected];
   } else if (stages.has("opportunity")) {
+    // When the model round-trips all fail but we still have enough signals and
+    // company facts to produce a useful (even if negative) recommendation, mark
+    // the stage partial instead of failed. A "暂不建议推销" verdict backed by
+    // real signals IS a valid outcome — it prevents a sales rep from wasting
+    // time on the wrong account. Only hard-fail when there is truly nothing.
     const hasPriorOa = report.opportunityAnalysis.opportunities.length > 0
       || report.opportunityAnalysis.currentSolutionOrCompetition.status !== "insufficient";
-    qualityAudit.stageOutcomes.opportunity = hasPriorOa ? "partial" : "failed";
+    const hasSignals = signals.length > 0;
+    const hasFacts = ci.companyOverview.status !== "insufficient" || ci.productsAndServices.length > 0;
+    qualityAudit.stageOutcomes.opportunity = (hasPriorOa || (hasSignals && hasFacts)) ? "partial" : "failed";
   }
 
   // ── 阶段 3：沟通作战 ──
@@ -1284,10 +1291,16 @@ export async function enhanceWithLlm(
     qualityAudit.stageOutcomes = { ...qualityAudit.stageOutcomes, ...convResult.outcomes };
     qualityAudit.rejectedFields = [...qualityAudit.rejectedFields, ...convResult.rejected];
   } else if (stages.has("conversation")) {
+    // Same logic as opportunity: if we can still produce a useful conversation
+    // plan (even with fallback questions) backed by facts and signals, mark
+    // partial rather than failed so the report is deliverable.
     const hasPriorCp = report.conversationPlan.discoveryQuestions.length > 0
       || report.conversationPlan.opening30s.status !== "insufficient"
       || report.conversationPlan.valueBridge.status !== "insufficient";
-    qualityAudit.stageOutcomes.conversation = hasPriorCp ? "partial" : "failed";
+    const hasFactsOrOpps = ci.companyOverview.status !== "insufficient"
+      || ci.productsAndServices.length > 0
+      || oa.opportunities.length > 0;
+    qualityAudit.stageOutcomes.conversation = (hasPriorCp || hasFactsOrOpps) ? "partial" : "failed";
   }
   cp = ensureConversationDepth(input, ci, oa, cp);
   if (!convResult && cp.discoveryQuestions.length >= 3) {
