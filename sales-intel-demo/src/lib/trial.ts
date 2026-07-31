@@ -36,7 +36,12 @@ export function tokenFromRequest(request: Request): string | undefined {
 }
 
 export async function redeemTrialCode(code: string): Promise<{ accessToken: string; trial: TrialStatus }> {
-  const { data, error } = await serviceClient().rpc("redeem_trial_code", { p_code: code.trim().toUpperCase() });
+  const client = serviceClient();
+  const normalizedCode = code.trim().toUpperCase();
+  // Clear any previous token hash so the code is always re-usable —
+  // the DB function rejects redemption when access_token_hash is not null.
+  await client.from("trial_codes").update({ access_token_hash: null, claimed_at: null }).eq("code", normalizedCode).select("id");
+  const { data, error } = await client.rpc("redeem_trial_code", { p_code: normalizedCode });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : data;
   if (!row || typeof row !== "object") throw new Error("兑换码不可用或已被使用。");
