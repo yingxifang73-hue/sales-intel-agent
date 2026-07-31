@@ -1,6 +1,8 @@
 allowBuilds:
   # Next image processing and test/lint toolchain.
   # New dependencies must be reviewed and added explicitly.
+  '@swc/core': set this to true or false
+  cbor-extract: set this to true or false
   esbuild: true
   sharp: true
   unrs-resolver: true

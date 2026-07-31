@@ -14,9 +14,10 @@
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.8",
-    "@supabase/supabase-js": "^2.110.8",
+    "@supabase/supabase-js": "^2.111.0",
     "next": "16.2.10",
     "openai": "6.48.0",
+    "pg": "^8.22.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "workflow": "4.7.0",
