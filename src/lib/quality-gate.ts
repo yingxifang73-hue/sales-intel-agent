@@ -187,6 +187,22 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
       && /暂不建议直接推销|不建议直接|竞争|重叠|互补|边界/i.test(
         `${report.salesVerdict.contactSuggestion.value ?? ""} ${report.salesVerdict.recommendationReason.value ?? ""}`,
       )
+    )
+    // When the model itself recommends against selling (regardless of why),
+    // and there are verified signals, having zero opportunities is a valid
+    // outcome — the signals just don't match the seller's product.
+    || (
+      /暂不建议直接推销|不建议直接推销/.test(
+        `${report.salesVerdict.contactSuggestion.value ?? ""} ${report.salesVerdict.recommendationReason.value ?? ""}`,
+      )
+      && report.salesVerdict.keyCustomerSignals.length > 0
+    )
+    // When the model failed to generate opportunities but public signals exist
+    // and facts are available, allow delivery. The report correctly warns the
+    // seller there is no product fit detected — that IS the insight.
+    || (
+      report.qualityAudit?.stageOutcomes?.opportunity === "partial"
+      && report.salesVerdict.keyCustomerSignals.length > 0
     );
   if (opportunities.length < 1 && !noDirectFit) missing.push("缺少有直接证据支撑的机会与痛点");
 
