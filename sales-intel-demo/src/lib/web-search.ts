@@ -336,11 +336,24 @@ export function buildBroadSearchQueries(
     queries.push(`${brand} ${productFocus} 自研 现有方案 合作`);
   }
   queries.push(`${brand} 客户 市场 合作伙伴 案例`);
+
+  // 客户画像搜索 — 商业模式、产品定位、目标用户、规模能力
+  // 之前缺乏针对性，导致 image-heavy 网站（如汽车）的画像维度经常不足
+  queries.push(`${brand} 目标客户 目标用户 服务行业 市场定位`);
+  queries.push(`${brand} 商业模式 收入 收费 订阅 直销 经销`);
+  queries.push(`${brand} 产品定位 高端 差异化 竞争优势 竞品`);
+  queries.push(`${brand} 规模 员工 产能 研发 生产基地 团队`);
+  // 如果公司有中文简称品牌名，单独用品牌名搜画像
+  if (brand !== hostname.replace(/^www\./, "").split(".")[0]) {
+    queries.push(`${brand} 公司 规模 员工 融资 收入`);
+    queries.push(`${brand} 行业 市场竞争 商业模式`);
+  }
+
   queries.push(`${brand} 新闻 公告 发布 最新动态`);
   queries.push(`${brand} 官方 联系方式 电话 邮箱 地址`);
   if (researchFocus.length) queries.push(`${brand} ${researchFocus.slice(0, 3).join(" ")}`);
 
-  return [...new Set(queries)].slice(0, 12);
+  return [...new Set(queries)].slice(0, 18);
 }
 
 /** 从官网 Markdown 提取品牌名 */
@@ -484,7 +497,7 @@ export class SearchCrawler implements CrawlerPort {
           if (!isRelevantCompanySearchResult(item, companyIdentity, hostname)) continue;
           // Search snippets only discover URLs. They cannot become report
           // evidence until the full page below is successfully read.
-          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 10) {
+          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 14) {
             deepScrapeUrls.set(item.link, "news");
           }
         }
@@ -498,7 +511,7 @@ export class SearchCrawler implements CrawlerPort {
       : buildBroadSearchQueries(hostname, hostname, input, researchFocus);
 
     const selectedQueries = searchQueries.slice(0, 10);
-    const searchResults = await mapWithConcurrency(selectedQueries, 5, (query) => serperSearch(query, this.serperApiKey, 6));
+    const searchResults = await mapWithConcurrency(selectedQueries, 5, (query) => serperSearch(query, this.serperApiKey, 8));
     for (let index = 0; index < searchResults.length; index++) {
       const result = searchResults[index];
       const query = selectedQueries[index];
@@ -513,7 +526,7 @@ export class SearchCrawler implements CrawlerPort {
           }
           // Search snippets only discover URLs. They cannot become report
           // evidence except for the exact first-party fallback above.
-          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 10) {
+          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 14) {
             const cat = classifyUrl(item.link, item.title);
             deepScrapeUrls.set(item.link, cat);
           }
