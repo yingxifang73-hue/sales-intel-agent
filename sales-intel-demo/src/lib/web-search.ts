@@ -497,7 +497,7 @@ export class SearchCrawler implements CrawlerPort {
           if (!isRelevantCompanySearchResult(item, companyIdentity, hostname)) continue;
           // Search snippets only discover URLs. They cannot become report
           // evidence until the full page below is successfully read.
-          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 14) {
+          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 12) {
             deepScrapeUrls.set(item.link, "news");
           }
         }
@@ -511,7 +511,7 @@ export class SearchCrawler implements CrawlerPort {
       : buildBroadSearchQueries(hostname, hostname, input, researchFocus);
 
     const selectedQueries = searchQueries.slice(0, 10);
-    const searchResults = await mapWithConcurrency(selectedQueries, 5, (query) => serperSearch(query, this.serperApiKey, 8));
+    const searchResults = await mapWithConcurrency(selectedQueries, 5, (query) => serperSearch(query, this.serperApiKey, 6));
     for (let index = 0; index < searchResults.length; index++) {
       const result = searchResults[index];
       const query = selectedQueries[index];
@@ -526,7 +526,7 @@ export class SearchCrawler implements CrawlerPort {
           }
           // Search snippets only discover URLs. They cannot become report
           // evidence except for the exact first-party fallback above.
-          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 14) {
+          if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 12) {
             const cat = classifyUrl(item.link, item.title);
             deepScrapeUrls.set(item.link, cat);
           }
@@ -554,11 +554,11 @@ export class SearchCrawler implements CrawlerPort {
         if (officialFallback) {
           officialSearchFallbacks.set(officialFallback.url.split("#")[0]!, officialFallback);
         }
-        if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 14) deepScrapeUrls.set(item.link, task.category);
+        if (!deepScrapeUrls.has(item.link) && deepScrapeUrls.size < 12) deepScrapeUrls.set(item.link, task.category);
       }
     }
 
-    const deepUrls = [...deepScrapeUrls.entries()].slice(0, 14);
+    const deepUrls = [...deepScrapeUrls.entries()].slice(0, 12);
     const deepResults = await mapWithConcurrency(deepUrls, 5, async ([url, category]) => ({ page: await scrapePage(url, this.jinaApiKey), category }));
     for (let index = 0; index < deepResults.length; index++) {
       const result = deepResults[index];
