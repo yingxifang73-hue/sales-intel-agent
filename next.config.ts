@@ -1,9 +1,11 @@
-import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
   devIndicators: false,
+  turbopack: {
+    root: __dirname,
+  },
   async headers() {
     return [{
       source: "/",
@@ -15,4 +17,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withWorkflow(nextConfig);
+export default nextConfig;

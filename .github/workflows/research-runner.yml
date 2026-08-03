@@ -1,0 +1,51 @@
+name: Run sales research
+
+on:
+  workflow_dispatch:
+    inputs:
+      research_id:
+        description: Supabase research job UUID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    name: Complete sales research
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      ENABLE_LLM_ENHANCEMENT: ${{ secrets.ENABLE_LLM_ENHANCEMENT }}
+      SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+      JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      FIRECRAWL_BASE_URL: ${{ secrets.FIRECRAWL_BASE_URL }}
+      MODEL_REQUEST_TIMEOUT_MS: "90000"
+      FIRECRAWL_TIMEOUT_MS: "15000"
+      DIRECT_FETCH_TIMEOUT_MS: "30000"
+      SEARCH_TIMEOUT_MS: "90000"
+      INTERNAL_PAGE_TIMEOUT_MS: "20000"
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Configure Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run complete research
+        run: pnpm research:run -- --research-id "${{ inputs.research_id }}"

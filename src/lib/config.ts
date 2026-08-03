@@ -17,6 +17,10 @@ const EnvironmentSchema = z.object({
   DIRECT_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   INTERNAL_PAGE_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  GITHUB_REPOSITORY: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional(),
+  GITHUB_REF: z.string().min(1).optional(),
+  GITHUB_DISPATCH_TOKEN: z.string().min(1).optional(),
+  RESEARCH_DISPATCH_GRACE_MS: z.coerce.number().int().min(60_000).max(30 * 60_000).default(7 * 60_000),
 });
 
 export type AppConfig = z.infer<typeof EnvironmentSchema>;

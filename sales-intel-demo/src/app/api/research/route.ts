@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { start } from "workflow/api";
-import { createResearchJob, setResearchJobWorkflowRun } from "@/lib/research-jobs";
+import { getConfig } from "@/lib/config";
+import { dispatchResearchJob } from "@/lib/github-actions-dispatch";
+import { createResearchJob, markResearchJobFailed } from "@/lib/research-jobs";
 import { finishTrialRun, reserveTrialRun, tokenFromRequest } from "@/lib/trial";
 import { ResearchInputSchema } from "@/lib/types";
-import { runSalesResearchWorkflow } from "@/workflows/research-workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,7 @@ export async function POST(request: Request) {
 
   let accessToken: string;
   let reservation;
+  let researchJobId: string | undefined;
   try {
     accessToken = tokenFromRequest(request) ?? "";
     reservation = await reserveTrialRun(accessToken);
@@ -26,13 +27,20 @@ export async function POST(request: Request) {
 
   try {
     const job = await createResearchJob(input, reservation.runId, accessToken);
-    const run = await start(runSalesResearchWorkflow, [job.id]);
-    await setResearchJobWorkflowRun(job.id, run.runId);
+    researchJobId = job.id;
+    await dispatchResearchJob(job.id, getConfig());
     return NextResponse.json({ researchId: job.id, status: "queued", progress: 0 }, {
       status: 202,
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
+    if (researchJobId) {
+      try {
+        await markResearchJobFailed(researchJobId, error instanceof Error ? error.message : "GitHub Actions 调研任务触发失败。");
+      } catch (jobError) {
+        console.error("Research job failure persistence failed:", jobError instanceof Error ? jobError.message : "unknown");
+      }
+    }
     try {
       await finishTrialRun(accessToken, reservation.runId, false);
     } catch (settlementError) {

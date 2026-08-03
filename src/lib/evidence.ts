@@ -28,41 +28,6 @@ const PUNCTUATION_ONLY_PATTERN = /^[\s"'`‘’“”«»「」『』【】()（
 const ENGLISH_UI_NOISE_PATTERN = /\b(?:click|expand|read more|read next|home|latest news|menu|search|input|icon|sign in|log in)\b/i;
 const CHINESE_UI_NOISE_PATTERN = /^(?:首页|产品信息|了解我们|加入我们|新闻动态|关于我们|关于米哈游|联系我们|联系方式|隐私政策|自律公约|廉政举报|廉正举报|游戏官网|微信公众号|查看更多|数据加载中|返回顶部|Bilibili)$/i;
 
-// Image alt-text patterns that indicate a picture caption, not factual content.
-// These often appear as "（图1 ...）" or "（图为...）" in crawled markdown.
-const IMAGE_ALT_PATTERN = /[（(]\s*(?:图\d*|图片|图为|上图|下图|示意图|图示|照片|图片来源)[^)）]{0,80}[)）]/g;
-
-// Chinese media platform boilerplate — comment prompts, disclaimers, footer notices.
-// These are NEVER useful evidence and should be stripped before LLM processing.
-const CHINESE_MEDIA_BOILERPLATE = [
-  /登录以发表评论/,
-  /特别声明[：:]\s*以上(?:文章)?内容(?:仅代表[^。]+观点|不代表[^。]+立场)[^。]*。/,
-  /特别声明[：:]\s*以上内容[^。]*仅提供信息存储服务[^。]*。/,
-  /Notice[：:].*?(?:content|article|views?|opinion).*?(?:does not|only|solely)/i,
-  /(?:文章|内容|作品)(?:内容)?(?:仅代表|不代表).*?(?:观点|立场)/,
-  /如有(?:关于)?(?:作品)?(?:内容|版权|其它|其他)问[题题][，,]?(?:请)?(?:于|在).*?(?:联系|新浪网|网易)/,
-  /(?:新浪网|网易|搜狐|腾讯)(?:科技)?(?:联系|版权|声明)/,
-  /Notice[：:]\s*(?:The\s+)?content\s+above/i,
-  /^\s*(?:举报|反馈|投诉|意见反馈|用户协议|隐私政策|Cookie|广告|推广)\s*$/i,
-  /(?:号|百家号|企鹅号|大风号|头条号|网易号).*?(?:仅代表|不代表).*?(?:观点|立场)/,
-  /(?:本文|此文)(?:仅代表|不代表).*?(?:作者|笔者|编者).*?(?:观点|立场)/,
-  /(?:评论区|评论列表|精彩评论|热门评论|最新评论|全部评论)\s*(?:加载|更多|展开|收起)?/,
-  /(?:文明上网|理性发言|请遵守|请勿发布|禁止发布).*?(?:违法违规|侵权|人身攻击)/,
-  /^\s*(?:相关搜索|相关推荐|热门推荐|为您推荐|猜你喜欢|大家还在看)\s*$/i,
-  /^\s*(?:阅读更多|查看全文|展开全文|继续阅读|下一页|上一页|返回首页?)\s*$/i,
-  /(?:扫描|扫码|二维码|长按识别).*?(?:关注|下载|打开|查看)/,
-  /(?:打开|下载)\s*(?:APP|客户端|应用).*?(?:阅读|查看|体验)/,
-  /^\s*(?:分享到?|转发(?:到)?|收藏|点赞|赞|在看)\s*$/i,
-  /(?:本文来源?|来源?[：:]|出处[：:])\s*(?:https?:\/\/)?(?:www\.)?\S+/i,
-  /(?:责任[编辑编]|责编|编辑)[：:]\s*\S+/,
-  /(?:未经(?:许可|授权|允许)|严禁转载|禁止转载)/,
-];
-
-function hasChineseMediaBoilerplate(text: string): boolean {
-  return CHINESE_MEDIA_BOILERPLATE.some((pattern) => pattern.test(text));
-}
-
-
 function isStandaloneNavigationLabel(value: string): boolean {
   const normalized = value
     .replace(/[*_`#>|\s]+/gu, "")
@@ -208,28 +173,9 @@ function meaningfulSegments(value: string): string[] {
     });
 }
 
-function isMenuBarLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (trimmed.length < 60 || trimmed.length > 400) return false;
-  // Menu bars are concatenations of short navigation labels separated by spaces.
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
-  if (tokens.length < 8) return false;
-  const unique = new Set(tokens.map((t) => t.toLowerCase()));
-  // Low uniqueness + many short tokens = navigation bar, not prose.
-  if (unique.size < 4) return true;
-  const shortTokens = tokens.filter((t) => t.length <= 8);
-  if (shortTokens.length / tokens.length >= 0.7 && unique.size <= 5) return true;
-  // Check for menu-like token patterns: no verbs, no dates, no sentences
-  const hasDateOrFact = /20\d{2}|发布|宣布|合作|推出|完成|实现|研发|生产|销售|提供|拥有|位于|创立|成立于/.test(trimmed);
-  const hasSentenceEnd = /[。！？.!?]/.test(trimmed);
-  return !hasDateOrFact && !hasSentenceEnd && unique.size / tokens.length < 0.3;
-}
-
 export function cleanSourceText(value: string): string {
   const decoded = stripSuspiciousPayloadLines(decodeHtmlEntities(value)
-    // Remove image alt text completely — "（图1 ...）" is not useful evidence.
     .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
-    // Keep link text for content links but mark them for menu detection.
     .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
     .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<[^>]+>/g, " ")
@@ -238,21 +184,12 @@ export function cleanSourceText(value: string): string {
     .replace(/^(?:title|url source|published time|markdown content)\s*:\s*.*$/gim, " ")
     .replace(/\b(?:skip to main content|search menu|investor room|all rights reserved)\b/gi, " ")
     .replace(/\b(?:cookie consent|privacy policy|terms of (?:use|service)|accept all|copyright(?: \d{4})?|menu|search)\b/gi, " ")
-    // Remove image captions
-    .replace(IMAGE_ALT_PATTERN, " ")
     // Keep line boundaries until navigation and boilerplate can be filtered.
     .replace(/[^\S\r\n]+/g, " ")
     .replace(/\r\n?/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
-    // Remove menu-bar lines and media boilerplate before meaningfulSegments
-    .split("\n")
-    .filter((line) => !isMenuBarLine(line))
-    .filter((line) => !hasChineseMediaBoilerplate(line))
-    .join("\n")
     .trim());
-  return meaningfulSegments(decoded)
-    .filter((segment) => !hasChineseMediaBoilerplate(segment))
-    .join("\n\n").slice(0, 80_000);
+  return meaningfulSegments(decoded).join("\n\n").slice(0, 80_000);
 }
 
 export function selectEvidenceExcerpts(source: Source, focus: string[] = []): string {

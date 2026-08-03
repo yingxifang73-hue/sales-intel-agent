@@ -6,7 +6,7 @@ export interface BanViolation {
   detail: string;
 }
 
-const FORBIDDEN_REPORT_TEXT = /\[\s*搜索摘要\s*]|\[\s*待验证\s*]|\[\s*待确认\s*]|等待模型|待模型|暂未生成|详情\s*$|BOSS直聘为求职者|JobsDB/i;
+const FORBIDDEN_REPORT_TEXT = /\[\s*搜索摘要\s*]|\[\s*待验证\s*]|\[\s*待确认\s*]|等待模型|待模型|暂未生成|详情\s*$|BOSS直聘为求职者|JobsDB|(?:目标公司(?:的)?\s*)?公开(?:业务)?资料显示/i;
 const SOFTWARE_PRODUCT_PATTERN = /(?:SDK|API|软件|平台|Token|计费|算力|芯片|AI|语音|转写|模型|算法)/i;
 const SOFTWARE_TEMPLATE_POLLUTION = /(?:包材规格|食品安全|饲料|养殖|产线兼容性|设备型号和技术参数|样品及小批量测试)/i;
 const SELF_BUILT_PATTERN = /(?:自研|自主研发|内部方案|自有能力|已经提供|已提供|已具备|已有.+(?:系统|平台|能力|体系)|现有.+(?:系统|平台|能力|体系))/i;
@@ -145,20 +145,10 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
   }
 
   const ci = report.customerIntelligence;
-  // Company overview can be thin on image-heavy sites (automotive, consumer
-  // brands). If we still have products/services or signals, a short overview
-  // alone should not block delivery.
-  if (!usefulField(ci.companyOverview, 50, true) && !usefulField(ci.companyOverview, 20, true)) {
-    missing.push("公司概况内容过少");
-  } else if (!usefulField(ci.companyOverview, 50, true)) {
-    // Short overview is only a warning — logged but not blocking.
-    const hasOtherIntel = ci.productsAndServices.some((item) => usefulItem(item, 22, true))
-      || report.salesVerdict.keyCustomerSignals.length >= 2;
-    if (!hasOtherIntel) missing.push("公司概况内容过少");
-  }
+  if (!usefulField(ci.companyOverview, 50, true)) missing.push("公司概况内容过少");
 
   const usefulProducts = ci.productsAndServices.filter((item) => usefulItem(item, 22, true));
-  if (usefulProducts.length < 1) missing.push("产品与服务内容质量不足");
+  if (usefulProducts.length < 2) missing.push("产品与服务内容质量不足");
 
   const profileCoverage = [
     usefulField(ci.targetCustomersAndMarket, 28, true),
@@ -167,12 +157,7 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
     usefulField(ci.scaleAndCapability, 22, true),
     ci.recentUpdates.some((item) => usefulItem(item, 22, true) && isCredibleRecentUpdate(item, report)),
   ].filter(Boolean).length;
-  // 当公司概况和产品服务有内容时，个别维度不足不阻塞交付
-  const hasCoreIntel = (ci.companyOverview.status !== "insufficient" && ci.companyOverview.value!.length >= 30)
-    || usefulProducts.length >= 1;
-  if (profileCoverage < 3 || (profileCoverage < 4 && !hasCoreIntel)) {
-    missing.push("客户画像关键维度不足");
-  }
+  if (profileCoverage < 4) missing.push("客户画像关键维度不足");
   if (ci.recentUpdates.length > 0 && !ci.recentUpdates.some((item) => isCredibleRecentUpdate(item, report))) {
     missing.push("近期动态缺少日期或新闻来源");
   }
@@ -192,22 +177,6 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
       && /暂不建议直接推销|不建议直接|竞争|重叠|互补|边界/i.test(
         `${report.salesVerdict.contactSuggestion.value ?? ""} ${report.salesVerdict.recommendationReason.value ?? ""}`,
       )
-    )
-    // When the model itself recommends against selling (regardless of why),
-    // and there are verified signals, having zero opportunities is a valid
-    // outcome — the signals just don't match the seller's product.
-    || (
-      /暂不建议直接推销|不建议直接推销/.test(
-        `${report.salesVerdict.contactSuggestion.value ?? ""} ${report.salesVerdict.recommendationReason.value ?? ""}`,
-      )
-      && report.salesVerdict.keyCustomerSignals.length > 0
-    )
-    // When the model failed to generate opportunities but public signals exist
-    // and facts are available, allow delivery. The report correctly warns the
-    // seller there is no product fit detected — that IS the insight.
-    || (
-      report.qualityAudit?.stageOutcomes?.opportunity === "partial"
-      && report.salesVerdict.keyCustomerSignals.length > 0
     );
   if (opportunities.length < 1 && !noDirectFit) missing.push("缺少有直接证据支撑的机会与痛点");
 
@@ -231,7 +200,7 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
   // Non-critical quality violations are logged but do not block delivery
   // (DeepSeek sometimes reuses phrasing across fields despite distinct content).
   for (const violation of checkBanRules(report)) {
-    if (violation.rule !== "no_cross_field_duplicate" && violation.rule !== "no_navigation_boilerplate" && violation.rule !== "no_placeholder_or_search_summary") {
+    if (violation.rule !== "no_cross_field_duplicate" && violation.rule !== "no_navigation_boilerplate") {
       missing.push(`禁止项：${violation.rule}`);
     }
   }

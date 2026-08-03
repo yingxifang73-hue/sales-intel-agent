@@ -128,6 +128,28 @@ export async function markResearchJobFailed(id: string, message: string): Promis
   return updateResearchJob(id, { status: "failed", message: "调研未能完成。", error: message.slice(0, 500) });
 }
 
+/**
+ * Atomically fail a job only while it remains queued. This prevents a status
+ * poll from racing with a GitHub runner that has already moved the job to
+ * `running`.
+ */
+export async function expireQueuedResearchJob(id: string, updatedBefore: string, message: string): Promise<ResearchJob | undefined> {
+  const { data, error } = await serviceClient().from("research_jobs")
+    .update({
+      status: "failed",
+      message: "调研任务未被后台执行器接收。",
+      error: message.slice(0, 500),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "queued")
+    .lte("updated_at", updatedBefore)
+    .select()
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? parseJob(data as DbJob) : undefined;
+}
+
 export async function settleTrialRunById(runId: string, succeeded: boolean): Promise<void> {
   const { error } = await serviceClient().rpc(succeeded ? "complete_trial_run_by_id" : "release_trial_run_by_id", { p_run_id: runId });
   if (error) throw new Error(error.message);

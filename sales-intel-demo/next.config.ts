@@ -1,9 +1,14 @@
-import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
   devIndicators: false,
+  // The repository also contains a legacy application at its outer root.
+  // Pin Turbopack to this application so it never discovers that app's
+  // obsolete Vercel Workflow dependency while building the Render service.
+  turbopack: {
+    root: __dirname,
+  },
   async headers() {
     return [{
       source: "/",
@@ -15,4 +20,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withWorkflow(nextConfig);
+export default nextConfig;

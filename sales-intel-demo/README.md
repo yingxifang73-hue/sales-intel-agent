@@ -47,6 +47,38 @@ ENABLE_LLM_ENHANCEMENT=true
 
 请勿将 API 密钥提交到仓库或填写到浏览器端。
 
+## Render + GitHub Actions 后台调研
+
+Render 只负责网页、创建调研任务和读取进度。完整的抓取、事实提取、报告分析和质量校验由 GitHub Actions 在后台完成，因此切换页面或 Render 的 HTTP 请求结束都不会中断调研。
+
+在 Render 的 Environment 中设置：
+
+```bash
+GITHUB_REPOSITORY=yingxifang73-hue/sales-intel-agent
+GITHUB_REF=feat/sales-intelligence-demo
+GITHUB_DISPATCH_TOKEN=...
+RESEARCH_DISPATCH_GRACE_MS=420000
+```
+
+`GITHUB_DISPATCH_TOKEN` 应为细粒度 GitHub Token，仅授予该私有仓库的 **Actions: Read and write** 权限。它只用于触发 `.github/workflows/research-runner.yml`，不会传递模型或抓取密钥。
+
+在 GitHub 仓库的 Actions secrets 中设置：
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+OPENAI_API_KEY
+OPENAI_BASE_URL
+OPENAI_MODEL
+ENABLE_LLM_ENHANCEMENT
+SERPER_API_KEY
+JINA_API_KEY
+FIRECRAWL_API_KEY
+FIRECRAWL_BASE_URL
+```
+
+请在 GitHub 的 Billing → Actions 中把预算设为 **$0**。GitHub Free 私有仓库每月有 2,000 分钟 Linux 运行额度；额度耗尽时任务会被 GitHub 阻止，不会产生自动扣费。若任务在 7 分钟内未被 GitHub Actions 接收，系统会标记失败、说明配置原因，并自动释放本次兑换码次数。
+
 ## 验证
 
 ```bash

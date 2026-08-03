@@ -1,4 +1,3 @@
-import { FatalError } from "workflow";
 import { buildUndeliverableReport, checkMinimum } from "@/lib/quality-gate";
 import { getConfig } from "@/lib/config";
 import { dedupeSources } from "@/lib/dedupe";
@@ -42,19 +41,21 @@ function parseWorkflowReport(value: unknown, stage: string) {
         issueCount: error.issues.length,
         paths: error.issues.slice(0, 8).map((issue) => issue.path.join(".")),
       }));
-      throw new FatalError(`报告在“${stage}”阶段未通过结构校验，已停止重复生成。`);
+      throw new Error(`报告在“${stage}”阶段未通过结构校验，已停止重复生成。`);
     }
     throw error;
   }
 }
 
 async function markRunning(jobId: string) {
-  "use step";
+  const job = await loadResearchJob(jobId);
+  if (job.status === "failed") {
+    throw new Error("调研任务已取消或后台执行等待超时，不再执行。");
+  }
   await setResearchJobStage(jobId, "validate", 5, "正在验证输入并准备调研。");
 }
 
 async function collectSources(jobId: string) {
-  "use step";
   const job = await loadResearchJob(jobId);
   if (job.collection) return;
   await setResearchJobStage(jobId, "collect", 18, "正在发现、抓取公司官网与公开资料。");
@@ -67,33 +68,30 @@ async function collectSources(jobId: string) {
   });
   await storeResearchCollection(jobId, collection);
   if (!collection.sources.length) {
-    throw new FatalError("目标官网当前无法访问或未返回可读取正文，搜索渠道也未找到可用公开页面。");
+    throw new Error("目标官网当前无法访问或未返回可读取正文，搜索渠道也未找到可用公开页面。");
   }
 }
 
 async function selectSources(jobId: string): Promise<number> {
-  "use step";
   const job = await loadResearchJob(jobId);
   if (job.selectedSources?.length) return job.selectedSources.length;
-  if (!job.collection) throw new FatalError("采集结果缺失，不能进行证据筛选。");
+  if (!job.collection) throw new Error("采集结果缺失，不能进行证据筛选。");
   await setResearchJobStage(jobId, "evidence", 35, "正在筛选可追溯的高质量公开资料。");
   const sources = selectReportSources(dedupeSources(job.collection.sources), job.input.targetUrl, 20, job.input);
-  if (!sources.length) throw new FatalError("采集到的网页均不满足报告证据要求。");
+  if (!sources.length) throw new Error("采集到的网页均不满足报告证据要求。");
   const readiness = assessEvidenceReadiness(sources, job.input.targetUrl);
   if (!readiness.ready) {
-    throw new FatalError(`公开资料尚不足以生成可靠报告：${readiness.reasons.join("；")}。本次未进入模型分析。`);
+    throw new Error(`公开资料尚不足以生成可靠报告：${readiness.reasons.join("；")}。本次未进入模型分析。`);
   }
   await storeSelectedSources(jobId, sources);
   return sources.length;
 }
 
 async function beginFactExtraction(jobId: string) {
-  "use step";
   await setResearchJobStage(jobId, "facts", 42, "正在并行提取全部来源中的公司事实。");
 }
 
 async function extractFactsBatch(jobId: string, batchIndex: number): Promise<SourceFactExtractionResult> {
-  "use step";
   const job = await loadResearchJob(jobId);
   const sources = job.selectedSources ?? [];
   const start = batchIndex * SOURCE_FACT_BATCH_SIZE;
@@ -107,22 +105,20 @@ async function extractFactsBatch(jobId: string, batchIndex: number): Promise<Sou
 }
 
 async function storeFactExtractions(jobId: string, extractions: SourceFactExtractionResult[]) {
-  "use step";
   const job = await loadResearchJob(jobId);
   const merged = extractions.reduce(
     (current, extraction) => mergeSourceFactExtraction(current, extraction),
     job.sourceFacts,
   );
-  if (!merged) throw new FatalError("来源事实提取结果缺失。");
+  if (!merged) throw new Error("来源事实提取结果缺失。");
   await storeSourceFacts(jobId, merged);
   await setResearchJobStage(jobId, "facts", 69, "全部来源已经完成事实提取，正在合并客户画像。");
 }
 
 async function initializeReport(jobId: string) {
-  "use step";
   const job = await loadResearchJob(jobId);
   if (job.report) return;
-  if (!job.collection || !job.selectedSources?.length) throw new FatalError("报告生成所需的来源数据缺失。");
+  if (!job.collection || !job.selectedSources?.length) throw new Error("报告生成所需的来源数据缺失。");
   const draft = synthesizeReport(
     job.input,
     job.selectedSources,
@@ -141,7 +137,7 @@ async function runModelModule(
   modelStage: ReportGenerationStage,
 ) {
   const job = await loadResearchJob(jobId);
-  if (!job.report || !job.selectedSources?.length) throw new FatalError(`${reportModuleLabel(module)}所需的报告上下文缺失。`);
+  if (!job.report || !job.selectedSources?.length) throw new Error(`${reportModuleLabel(module)}所需的报告上下文缺失。`);
   if (isReportModuleComplete(job.report, module)) return;
 
   const label = reportModuleLabel(module);
@@ -159,20 +155,17 @@ async function runModelModule(
 }
 
 async function generateCustomerProfile(jobId: string) {
-  "use step";
   await runModelModule(jobId, "customer_profile", "facts");
 }
 
 async function generateProductFit(jobId: string) {
-  "use step";
   await runModelModule(jobId, "product_fit", "opportunity");
 }
 
 async function saveOpportunities(jobId: string) {
-  "use step";
   const job = await loadResearchJob(jobId);
   if (!job.report || !isReportModuleComplete(job.report, "opportunities")) {
-    throw new FatalError("机会与痛点尚未完成，不能进入下一模块。");
+    throw new Error("机会与痛点尚未完成，不能进入下一模块。");
   }
   await setResearchJobStage(
     jobId,
@@ -184,15 +177,13 @@ async function saveOpportunities(jobId: string) {
 }
 
 async function generateTalkTrack(jobId: string) {
-  "use step";
   await runModelModule(jobId, "talk_track", "conversation");
 }
 
 async function saveNextStep(jobId: string) {
-  "use step";
   const job = await loadResearchJob(jobId);
   if (!job.report || !isReportModuleComplete(job.report, "next_step")) {
-    throw new FatalError("下一步尚未完成，不能进入销售结论。");
+    throw new Error("下一步尚未完成，不能进入销售结论。");
   }
   await setResearchJobStage(
     jobId,
@@ -204,7 +195,6 @@ async function saveNextStep(jobId: string) {
 }
 
 async function finalizeSalesVerdict(jobId: string) {
-  "use step";
   await runModelModule(jobId, "sales_verdict", "quality_review");
 }
 
@@ -254,30 +244,25 @@ async function repairReportModule(
 }
 
 async function repairCustomerProfile(jobId: string) {
-  "use step";
   await repairReportModule(jobId, "customer_profile", "facts");
 }
 
 async function repairProductFit(jobId: string) {
-  "use step";
   await repairReportModule(jobId, "product_fit", "opportunity");
 }
 
 async function repairTalkTrack(jobId: string) {
-  "use step";
   await repairReportModule(jobId, "talk_track", "conversation");
 }
 
 async function repairSalesVerdict(jobId: string) {
-  "use step";
   await repairReportModule(jobId, "sales_verdict", "quality_review");
 }
 
 async function verifyAndSettle(jobId: string) {
-  "use step";
   const job = await loadResearchJob(jobId);
   if (job.status === "completed") return;
-  if (!job.report) throw new FatalError("最终报告缺失，不能结算调研次数。");
+  if (!job.report) throw new Error("最终报告缺失，不能结算调研次数。");
   await setResearchJobStage(jobId, "sales_verdict", 98, "正在检查销售结论与报告完整性。");
   const report = parseWorkflowReport(job.report, "报告校验");
   const minimum = checkMinimum(report);
@@ -287,22 +272,20 @@ async function verifyAndSettle(jobId: string) {
   };
   await storeResearchReport(jobId, parseWorkflowReport(finalized, "报告校验"));
   if (!minimum.passed) {
-    throw new FatalError(buildUndeliverableReport(minimum.missing));
+    throw new Error(buildUndeliverableReport(minimum.missing));
   }
   await settleTrialRunById(job.trialRunId, true);
   await markResearchJobCompleted(jobId);
 }
 
 async function failAndRelease(jobId: string, error: unknown) {
-  "use step";
   const job = await loadResearchJob(jobId);
-  if (job.status === "completed") return;
+  if (job.status === "completed" || job.status === "failed") return;
   await settleTrialRunById(job.trialRunId, false);
   await markResearchJobFailed(jobId, presentResearchFailure(error, job.currentStage));
 }
 
-export async function runSalesResearchWorkflow(jobId: string) {
-  "use workflow";
+export async function runResearchJob(jobId: string) {
   try {
     await markRunning(jobId);
     await collectSources(jobId);
