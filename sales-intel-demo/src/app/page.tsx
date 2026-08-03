@@ -174,21 +174,12 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      // 强制清除所有旧版本的活跃调研记录，防止无限转圈
       try {
-        const raw = localStorage.getItem(ACTIVE_RESEARCH_STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw) as ActiveResearchMeta;
-        if (parsed?.id && parsed.targetUrl && parsed.productName && parsed.ts) {
-          // 超过 30 分钟的旧任务自动放弃
-          if (Date.now() - parsed.ts > 30 * 60 * 1000) {
-            localStorage.removeItem(ACTIVE_RESEARCH_STORAGE_KEY);
-            return;
-          }
-          setActiveResearch(parsed);
-          setIsRunning(true);
-        }
-      } catch {
+        localStorage.removeItem("sales-intel-active-research-v1");
         localStorage.removeItem(ACTIVE_RESEARCH_STORAGE_KEY);
+      } catch {
+        // ignore
       }
     }, 0);
     return () => window.clearTimeout(timer);
