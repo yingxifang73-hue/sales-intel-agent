@@ -224,7 +224,29 @@ function conciseEvidenceContext(value: string | undefined): string {
 
 // ─── LLM 调用（原生 fetch，避开 SDK 兼容问题）───
 
-async function readOpenAiSseContent(response: Response): Promise<string> {
+type OpenAiCompletionPayload = {
+  choices?: Array<{
+    delta?: { content?: unknown };
+    message?: { content?: unknown };
+    text?: unknown;
+  }>;
+};
+
+/**
+ * OpenAI-compatible gateways are allowed to ignore stream=true and return a
+ * regular JSON completion. Treating that response as SSE loses valid model
+ * output and causes needless timeout/retry cycles.
+ */
+export async function readOpenAiSseContent(response: Response): Promise<string> {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("application/json")) {
+    const payload = await response.json() as OpenAiCompletionPayload;
+    const choice = payload.choices?.[0];
+    const content = choice?.message?.content ?? choice?.delta?.content ?? choice?.text;
+    if (typeof content === "string" && content.trim()) return content;
+    throw new Error("empty model JSON response");
+  }
+
   if (!response.body) throw new Error("model stream body is unavailable");
 
   const reader = response.body.getReader();
@@ -238,7 +260,7 @@ async function readOpenAiSseContent(response: Response): Promise<string> {
     const data = value.slice("data:".length).trim();
     if (!data || data === "[DONE]") return;
     try {
-      const chunk = JSON.parse(data) as { choices?: Array<{ delta?: { content?: unknown } }> };
+      const chunk = JSON.parse(data) as OpenAiCompletionPayload;
       const delta = chunk.choices?.[0]?.delta?.content;
       if (typeof delta === "string") content += delta;
     } catch {

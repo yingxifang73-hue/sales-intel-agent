@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatCompletionsUrl, resolveModelBundleSourceId } from "@/lib/llm";
+import { chatCompletionsUrl, readOpenAiSseContent, resolveModelBundleSourceId } from "@/lib/llm";
 
 describe("chatCompletionsUrl", () => {
   it("adds the OpenAI version segment when the provider host is unversioned", () => {
@@ -29,5 +29,24 @@ describe("resolveModelBundleSourceId", () => {
 
   it("rejects an identifier outside the current source batch", () => {
     expect(resolveModelBundleSourceId("S4", sourceIds)).toBeUndefined();
+  });
+});
+
+describe("readOpenAiSseContent", () => {
+  it("accepts a regular JSON completion from an OpenAI-compatible gateway", async () => {
+    const response = new Response(JSON.stringify({
+      choices: [{ message: { content: '{"bundles":[]}' } }],
+    }), { headers: { "content-type": "application/json" } });
+
+    await expect(readOpenAiSseContent(response)).resolves.toBe('{"bundles":[]}');
+  });
+
+  it("continues to accept an SSE completion", async () => {
+    const response = new Response(
+      'data: {"choices":[{"delta":{"content":"{\\"ok\\":true}"}}]}\n\ndata: [DONE]\n',
+      { headers: { "content-type": "text/event-stream" } },
+    );
+
+    await expect(readOpenAiSseContent(response)).resolves.toBe('{"ok":true}');
   });
 });
