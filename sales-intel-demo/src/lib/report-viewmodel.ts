@@ -215,6 +215,8 @@ function cleanDisplayValue(value: string | undefined): string {
     .replace(/^[，。！？；：、""''）】》」』]+/gmu, "")
     .replace(/\s{2,}/g, " ")
     .trim());
+  // 如果清理后只剩日期/时间范围（如 "2022年8月"、"2022-08"），丢弃
+  if (/^[\[（(]?\s*(?:\d{4}\s*[-/年\.]\s*\d{1,2}\s*(?:[-/月\.]\s*\d{1,2})?\s*日?\s*)[\]）)]?\s*$/.test(cleaned)) return "";
   return isUserFacingChineseText(cleaned) ? cleaned : "";
 }
 
