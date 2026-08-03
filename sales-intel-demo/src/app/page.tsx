@@ -189,8 +189,6 @@ export default function Home() {
     if (!activeResearch || !trialToken) return;
     let cancelled = false;
     let timer: number | undefined;
-    const startedAt = Date.now();
-
     const poll = async () => {
       try {
         const response = await fetch(`/api/research/${activeResearch.id}`, {
@@ -264,15 +262,6 @@ export default function Home() {
         }
       } catch (pollError) {
         if (!cancelled) setError(pollError instanceof Error ? pollError.message : "无法读取调研进度。");
-      }
-      // Safety timeout: abort polling after 10 minutes
-      if (!cancelled && Date.now() - startedAt > 600_000) {
-        setError("调研超时（超过10分钟未完成），本次调研次数已自动退回。");
-        localStorage.removeItem(ACTIVE_RESEARCH_STORAGE_KEY);
-        setActiveResearch(null);
-        setPipelineState({ events: [] });
-        setIsRunning(false);
-        return;
       }
       if (!cancelled) timer = window.setTimeout(poll, 2_000);
     };

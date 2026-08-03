@@ -90,42 +90,53 @@ export async function loadAuthorizedResearchJob(id: string, accessToken: string)
   return parseJob(data as DbJob);
 }
 
-async function updateResearchJob(id: string, patch: Record<string, unknown>): Promise<ResearchJob> {
-  const { data, error } = await serviceClient().from("research_jobs").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id).select().single();
-  if (error || !data) throw new Error(error?.message ?? "Unable to update research job.");
+/**
+ * Once the status endpoint has terminally failed a stale job, an old runner
+ * must never be able to revive it after an in-flight crawler/model call
+ * eventually returns. Every runner write therefore requires an active state.
+ */
+async function updateActiveResearchJob(id: string, patch: Record<string, unknown>): Promise<ResearchJob> {
+  const { data, error } = await serviceClient().from("research_jobs")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .in("status", ["queued", "running"])
+    .select()
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Research job is no longer active.");
   return parseJob(data as DbJob);
 }
 
 export async function setResearchJobWorkflowRun(id: string, workflowRunId: string): Promise<void> {
-  await updateResearchJob(id, { workflow_run_id: workflowRunId });
+  await updateActiveResearchJob(id, { workflow_run_id: workflowRunId });
 }
 
 export async function setResearchJobStage(id: string, stage: string, progress: number, message: string): Promise<ResearchJob> {
-  return updateResearchJob(id, { status: "running", current_stage: stage, progress, message, error: null });
+  return updateActiveResearchJob(id, { status: "running", current_stage: stage, progress, message, error: null });
 }
 
 export async function storeResearchCollection(id: string, collection: DualChannelResult): Promise<void> {
-  await updateResearchJob(id, { collection });
+  await updateActiveResearchJob(id, { collection });
 }
 
 export async function storeSelectedSources(id: string, sources: Source[]): Promise<void> {
-  await updateResearchJob(id, { selected_sources: sources });
+  await updateActiveResearchJob(id, { selected_sources: sources });
 }
 
 export async function storeSourceFacts(id: string, facts: SourceFactExtractionResult): Promise<void> {
-  await updateResearchJob(id, { source_facts: facts });
+  await updateActiveResearchJob(id, { source_facts: facts });
 }
 
 export async function storeResearchReport(id: string, report: SalesReport): Promise<void> {
-  await updateResearchJob(id, { report: SalesReportSchema.parse(normalizeSalesReportAudit(report)) });
+  await updateActiveResearchJob(id, { report: SalesReportSchema.parse(normalizeSalesReportAudit(report)) });
 }
 
 export async function markResearchJobCompleted(id: string): Promise<ResearchJob> {
-  return updateResearchJob(id, { status: "completed", progress: 100, current_stage: "completed", message: "调研报告已生成。", completed_at: new Date().toISOString(), error: null });
+  return updateActiveResearchJob(id, { status: "completed", progress: 100, current_stage: "completed", message: "调研报告已生成。", completed_at: new Date().toISOString(), error: null });
 }
 
 export async function markResearchJobFailed(id: string, message: string): Promise<ResearchJob> {
-  return updateResearchJob(id, { status: "failed", message: "调研未能完成。", error: message.slice(0, 500) });
+  return updateActiveResearchJob(id, { status: "failed", message: "调研未能完成。", error: message.slice(0, 500) });
 }
 
 /**
@@ -143,6 +154,34 @@ export async function expireQueuedResearchJob(id: string, updatedBefore: string,
     })
     .eq("id", id)
     .eq("status", "queued")
+    .lte("updated_at", updatedBefore)
+    .select()
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? parseJob(data as DbJob) : undefined;
+}
+
+/**
+ * Atomically fail a runner that has stopped emitting a stage heartbeat. The
+ * stage condition makes this safe when a live runner moves forward while the
+ * status endpoint is checking its freshness.
+ */
+export async function expireStalledResearchJob(
+  id: string,
+  stage: string,
+  updatedBefore: string,
+  message: string,
+): Promise<ResearchJob | undefined> {
+  const { data, error } = await serviceClient().from("research_jobs")
+    .update({
+      status: "failed",
+      message: "调研任务已停止等待后台响应。",
+      error: message.slice(0, 500),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "running")
+    .eq("current_stage", stage)
     .lte("updated_at", updatedBefore)
     .select()
     .maybeSingle();
