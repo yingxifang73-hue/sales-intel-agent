@@ -46,6 +46,16 @@ function validSourceIds(value: unknown, sources: Source[]): string[] | undefined
   return ids.length ? [...new Set(ids)].slice(0, 10) : undefined;
 }
 
+/** Resolve the provider's compact S1/S2 identifier back to a batch source id. */
+export function resolveModelBundleSourceId(value: unknown, sourceIds: readonly string[]): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if (sourceIds.includes(value)) return value;
+  const shortMatch = value.match(/^S(\d+)$/i);
+  if (!shortMatch) return undefined;
+  const index = Number.parseInt(shortMatch[1]!, 10) - 1;
+  return index >= 0 && index < sourceIds.length ? sourceIds[index] : undefined;
+}
+
 function readableText(value: unknown): string | undefined {
   if (typeof value !== "string" || /&(?:#x?[0-9a-f]+|[a-z][a-z0-9]+);/i.test(value)) return undefined;
   const text = sanitizeChineseOutput(value);
@@ -518,11 +528,10 @@ export async function extractSourceFactBundles(
               : [];
         for (const rawBundle of rawBundles) {
           if (!isRecord(rawBundle)) continue;
-          const sourceId = typeof rawBundle.sourceId === "string"
-            ? rawBundle.sourceId
-            : pendingBatch.length === 1
-              ? pendingBatch[0]!.id
-              : undefined;
+          const sourceId = resolveModelBundleSourceId(
+            rawBundle.sourceId,
+            pendingBatch.map((item) => item.id),
+          ) ?? (pendingBatch.length === 1 ? pendingBatch[0]!.id : undefined);
           const source = sourceId ? pendingBatch.find((item) => item.id === sourceId) : undefined;
           if (!source) continue;
           const modelBundle = bundleFromModelResponse(rawBundle, source);
