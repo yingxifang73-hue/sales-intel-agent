@@ -209,6 +209,10 @@ function cleanDisplayValue(value: string | undefined): string {
     .replace(/^(?:搜索摘要|待验证|待确认)\s*[：:，,]?\s*/u, "")
     // 清理 LLM 输出中残留的 markdown 标记符号
     .replace(/[`*_#~]/g, "")
+    // 删除独立成行的孤立标点（如单独一行只有 "）"、"；"、"，" 等）
+    .replace(/^\s*[，。！？；：、""''）】》」』]+\s*$/gmu, "")
+    // 删除行首的孤立标点（如 "）；一些文字" 中的 "）；"）
+    .replace(/^[，。！？；：、""''）】》」』]+/gmu, "")
     .replace(/\s{2,}/g, " ")
     .trim());
   return isUserFacingChineseText(cleaned) ? cleaned : "";
