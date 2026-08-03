@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkBanRules, checkMinimum } from "@/lib/quality-gate";
+import { checkBanRules, checkDeliveryMinimum, checkMinimum } from "@/lib/quality-gate";
 import { normalizeSalesReportNarrative } from "@/lib/report-text";
 import type { SalesReport } from "@/lib/types";
 
@@ -107,6 +107,21 @@ function completeReport(): SalesReport {
     mainReferenceLinks: [{ title: "示例公司官网", url: "https://example.com" }],
   };
 }
+
+it("保留语义复核问题用于定向修复，但不让单次主观复核独自杀死客观完整报告", () => {
+  const report = completeReport();
+  report.qualityAudit!.stageOutcomes.quality_review = "failed";
+  report.qualityAudit!.rejectedFields.push({
+    field: "qualityJudge.specificity.conversationPlan.opening30s",
+    reason: "开场话术仍可更具体",
+  });
+
+  expect(checkMinimum(report)).toMatchObject({
+    passed: false,
+    missing: expect.arrayContaining(["语义质量复核未通过"]),
+  });
+  expect(checkDeliveryMinimum(report)).toEqual({ passed: true, missing: [] });
+});
 
 describe("report minimum quality", () => {
   it("accepts a complete structured report with partial-but-usable recovery stages", () => {

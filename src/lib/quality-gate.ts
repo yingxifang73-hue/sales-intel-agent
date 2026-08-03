@@ -235,6 +235,19 @@ export function checkMinimum(report: SalesReport): MinimumCheckResult {
   return { passed: missing.length === 0, missing: [...new Set(missing)] };
 }
 
+/**
+ * The semantic judge is intentionally stricter and partly subjective. Its
+ * findings drive one focused repair pass, but they must not be the sole reason
+ * an otherwise complete, source-backed report is discarded. Deterministic
+ * structure, evidence and ban-rule failures remain hard delivery blockers.
+ */
+export function checkDeliveryMinimum(report: SalesReport): MinimumCheckResult {
+  const missing = checkMinimum(report).missing.filter(
+    (item) => item !== "语义质量复核未通过",
+  );
+  return { passed: missing.length === 0, missing };
+}
+
 function isCredibleRecentUpdate(item: ResearchListItem, report: SalesReport): boolean {
   if (!usefulItem(item, 22, true)) return false;
   if (DATE_PATTERN.test(item.value)) return true;

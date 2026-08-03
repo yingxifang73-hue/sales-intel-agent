@@ -6,7 +6,7 @@ import { extractVerifiedContactsFromSources, normalizeContactIntelligence } from
 import { checkMinimum } from "@/lib/quality-gate";
 import { assessSource, type EvidenceCategory } from "@/lib/source-quality";
 import { getPreset } from "@/lib/presets";
-import type { ReportGenerationStage } from "@/lib/report-repair";
+import { buildSemanticRepairInstruction, type ReportGenerationStage } from "@/lib/report-repair";
 import {
   extractDeterministicSourceFacts,
   mergeSourceFactBundles,
@@ -601,6 +601,7 @@ export async function extractSourceFactBundles(
 async function generateFacts(
   config: AppConfig, report: SalesReport, input: ResearchInput, sources: Source[],
   preExtracted?: SourceFactExtractionResult,
+  qualityFeedback: RejectedField[] = [],
 ): Promise<{ ci: CustomerIntelligence; contacts: ContactIntelligence; signals: ResearchListItem[]; outcomes: Record<string, StageOutcome>; rejected: RejectedField[] } | null> {
   // The old whole-corpus request made every customer field depend on one JSON
   // response. The map-reduce path below deliberately returns before that
@@ -611,7 +612,8 @@ async function generateFacts(
   const hasContent = merged.customerIntelligence.companyOverview.status !== "insufficient"
     || merged.customerIntelligence.productsAndServices.length > 0
     || merged.signals.length > 0;
-  if (hasContent) {
+  const repairInstruction = buildSemanticRepairInstruction(qualityFeedback);
+  if (hasContent && !repairInstruction) {
     return {
       ci: merged.customerIntelligence,
       contacts: { channels: [], publicContacts: [] },
@@ -631,6 +633,8 @@ async function generateFacts(
       valueProposition: input.sellerProfile.valueProposition,
       targetCustomer: input.sellerProfile.targetCustomer,
     },
+    currentCustomerProfile: merged.customerIntelligence,
+    qualityReviewFeedback: qualityFeedback,
     evidence,
   };
   const outcomes: Record<string, StageOutcome> = { facts: "failed" };
@@ -638,7 +642,13 @@ async function generateFacts(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await completeJson(config, factsPrompt(payload.sellerContext), payload, 2_800, attempt > 0);
+      const raw = await completeJson(
+        config,
+        `${factsPrompt(payload.sellerContext)}${repairInstruction}`,
+        payload,
+        2_800,
+        attempt > 0,
+      );
       const parsed = extractJson(raw);
       const ciRaw = isRecord(parsed?.customerIntelligence) ? parsed.customerIntelligence : undefined;
       if (!ciRaw) continue;
@@ -668,6 +678,18 @@ async function generateFacts(
     } catch (error) {
       if (attempt === 1) console.error("Facts generation failed:", error instanceof Error ? error.message : "unknown");
     }
+  }
+  if (hasContent) {
+    return {
+      ci: merged.customerIntelligence,
+      contacts: { channels: [], publicContacts: [] },
+      signals: merged.signals,
+      outcomes: { ...extraction.outcomes, facts: "partial" },
+      rejected: [
+        ...extraction.rejected,
+        { field: "qualityRepair.facts", reason: "定向修复模型未返回可用结果，已保留原有来源事实" },
+      ],
+    };
   }
   outcomes.facts = "failed";
   return null;
@@ -714,6 +736,7 @@ signal 只能复述来源直接事实，不得把“存在采购需求、持续�
 async function generateOpportunity(
   config: AppConfig, report: SalesReport, input: ResearchInput, sources: Source[],
   ci: CustomerIntelligence, signals: ResearchListItem[],
+  qualityFeedback: RejectedField[] = [],
 ): Promise<{ oa: OpportunityAnalysis; outcomes: Record<string, StageOutcome>; rejected: RejectedField[] } | null> {
   const referencedSourceIds = referencedIdsFromFields([
     ci.companyOverview,
@@ -745,6 +768,7 @@ async function generateOpportunity(
       recentUpdates: ci.recentUpdates.map((u) => u.value),
     },
     signals: signals.map((s) => ({ value: s.value, sourceIds: s.sourceIds })),
+    qualityReviewFeedback: qualityFeedback,
     evidence,
   };
   const outcomes: Record<string, StageOutcome> = { opportunity: "failed" };
@@ -752,7 +776,13 @@ async function generateOpportunity(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await completeJson(config, opportunityPrompt(payload.sellerProfile), payload, 2_200, attempt > 0);
+      const raw = await completeJson(
+        config,
+        `${opportunityPrompt(payload.sellerProfile)}${buildSemanticRepairInstruction(qualityFeedback)}`,
+        payload,
+        2_200,
+        attempt > 0,
+      );
       const parsed = extractJson(raw);
       if (!isRecord(parsed)) continue;
 
@@ -943,6 +973,7 @@ function conversationPrompt(seller: { productName: string; valueProposition: str
 async function generateConversation(
   config: AppConfig, report: SalesReport, input: ResearchInput, sources: Source[],
   ci: CustomerIntelligence, oa: OpportunityAnalysis,
+  qualityFeedback: RejectedField[] = [],
 ): Promise<{ cp: ConversationPlan; outcomes: Record<string, StageOutcome>; rejected: RejectedField[] } | null> {
   const referencedSourceIds = referencedIdsFromFields([
     ci.companyOverview,
@@ -989,6 +1020,7 @@ async function generateConversation(
       confidence: o.confidence.value,
     })),
     overallFit: oa.overallConfidence.value,
+    qualityReviewFeedback: qualityFeedback,
     evidence,
   };
   const outcomes: Record<string, StageOutcome> = { conversation: "failed" };
@@ -996,7 +1028,13 @@ async function generateConversation(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await completeJson(config, conversationPrompt(payload.sellerProfile), payload, 1_800, attempt > 0);
+      const raw = await completeJson(
+        config,
+        `${conversationPrompt(payload.sellerProfile)}${buildSemanticRepairInstruction(qualityFeedback)}`,
+        payload,
+        1_800,
+        attempt > 0,
+      );
       const parsed = extractJson(raw);
       const cpRaw = isRecord(parsed?.conversationPlan) ? parsed.conversationPlan : undefined;
       if (!cpRaw) continue;
@@ -1234,12 +1272,13 @@ export async function enhanceWithLlm(
   sources: Source[],
   config: AppConfig,
   preExtracted?: SourceFactExtractionResult,
-  options: { stages?: readonly ReportGenerationStage[] } = {},
+  options: { stages?: readonly ReportGenerationStage[]; qualityFeedback?: RejectedField[] } = {},
 ): Promise<SalesReport> {
   sources = dedupeSources(sources);
   const stages = new Set<ReportGenerationStage>(
     options.stages ?? ["facts", "opportunity", "conversation", "quality_review"],
   );
+  const qualityFeedback = options.qualityFeedback ?? [];
   if (!config.OPENAI_API_KEY) {
     const extraction = preExtracted ?? await extractSourceFactBundles(config, input, sources);
     const merged = mergeSourceFactBundles(extraction.bundles, sources);
@@ -1270,7 +1309,7 @@ export async function enhanceWithLlm(
   let signals: ResearchListItem[] = report.salesVerdict.keyCustomerSignals ?? [];
   const factsStartedAt = Date.now();
   const factsResult = stages.has("facts")
-    ? await generateFacts(config, report, input, sources, preExtracted)
+    ? await generateFacts(config, report, input, sources, preExtracted, qualityFeedback)
     : null;
   if (stages.has("facts")) {
     llmCalls += 1;
@@ -1304,7 +1343,7 @@ export async function enhanceWithLlm(
   let oa: OpportunityAnalysis = report.opportunityAnalysis;
   const opportunityStartedAt = Date.now();
   const oppResult = stages.has("opportunity")
-    ? await generateOpportunity(config, report, input, sources, ci, signals)
+    ? await generateOpportunity(config, report, input, sources, ci, signals, qualityFeedback)
     : null;
   if (stages.has("opportunity")) {
     llmCalls += 1;
@@ -1337,7 +1376,7 @@ export async function enhanceWithLlm(
   let cp: ConversationPlan = report.conversationPlan;
   const conversationStartedAt = Date.now();
   const convResult = stages.has("conversation")
-    ? await generateConversation(config, report, input, sources, ci, oa)
+    ? await generateConversation(config, report, input, sources, ci, oa, qualityFeedback)
     : null;
   if (stages.has("conversation")) {
     llmCalls += 1;
@@ -1407,6 +1446,11 @@ export async function enhanceWithLlm(
     const semanticReview = await judgeSemanticQuality(config, input, candidateReport, sources);
     llmCalls += 1;
     console.info(JSON.stringify({ event: "research_stage_timing", stage: "quality_review", durationMs: Date.now() - qualityStartedAt }));
+    console.info(JSON.stringify({
+      event: "semantic_quality_review",
+      passed: semanticReview?.passed ?? null,
+      issues: semanticReview?.issues ?? [],
+    }));
     qualityAudit.rejectedFields = qualityAudit.rejectedFields.filter(
       (item) => !item.field.startsWith("qualityJudge."),
     );
