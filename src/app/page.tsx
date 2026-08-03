@@ -48,7 +48,7 @@ type PipelineEventLocal =
 
 type TrialDisplay = { code: string; remainingRuns: number; completedRuns: number; maxRuns: number };
 const TRIAL_TOKEN_STORAGE_KEY = "sales-intel-trial-token";
-const ACTIVE_RESEARCH_STORAGE_KEY = "sales-intel-active-research-v1";
+const ACTIVE_RESEARCH_STORAGE_KEY = "sales-intel-active-research-v3";
 
 type ActiveResearchMeta = {
   id: string;
