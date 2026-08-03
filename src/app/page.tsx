@@ -558,9 +558,6 @@ function HistoryPage({
             <tr>
               <th>客户</th>
               <th>我方产品</th>
-              <th>建议等级</th>
-              <th>当前状态</th>
-              <th>数据质量</th>
               <th>生成时间</th>
               <th></th>
             </tr>
@@ -568,22 +565,10 @@ function HistoryPage({
           <tbody>
             {history.map((h) => {
               const hn = getHostname(h.targetUrl);
-              const grade = deriveSimpleGrade(h.report);
               return (
                 <tr key={h.id} onClick={() => onOpen(h.id)}>
                   <td><strong>{hn}</strong></td>
                   <td>{h.productName}</td>
-                  <td>
-                    <span
-                      className={`confidence-tag confidence-${grade === "A" ? "高" : grade === "B" ? "中" : "低"}`}
-                    >
-                      {grade} 级
-                    </span>
-                  </td>
-                  <td>{h.report.reportMeta.status ?? "—"}</td>
-                  <td className="si-history-quality">
-                    {h.metrics ? `${h.metrics.sourceCount} 来源` : "—"}
-                  </td>
                   <td className="si-history-date">
                     {h.createdAt.slice(0, 16).replace("T", " ")}
                   </td>
@@ -611,17 +596,4 @@ function HistoryPage({
 
 function getHostname(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
-}
-
-function deriveSimpleGrade(report: SalesReport): string {
-  const hasSignals = report.salesVerdict?.keyCustomerSignals?.length > 0;
-  const hasOpps = report.opportunityAnalysis?.opportunities?.length > 0;
-  const ciOk = report.customerIntelligence?.companyOverview?.status !== "insufficient";
-  const qualityPassed = report.reportMeta.status === "达标" && report.qualityAudit?.minimumStandardMet !== false;
-  const overlappingSolution = report.opportunityAnalysis?.relationshipType === "competitive"
-    || report.opportunityAnalysis?.relationshipType === "self_built";
-  if (overlappingSolution && !hasOpps) return "D";
-  if (qualityPassed && hasSignals && hasOpps && ciOk) return "B";
-  if (hasSignals || ciOk) return "C";
-  return "D";
 }

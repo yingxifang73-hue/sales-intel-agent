@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "research:run": "tsx src/scripts/run-research-job.ts"
+    "research:run": "tsx src/scripts/run-research-job.ts",
+    "trial-codes:refresh": "tsx src/scripts/refresh-trial-codes.ts"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.8",

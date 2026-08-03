@@ -27,12 +27,6 @@ function hostname(url: string): string {
   }
 }
 
-function confidenceLabel(value: string): string {
-  if (/高/.test(value)) return "高";
-  if (/低/.test(value)) return "低";
-  return "中";
-}
-
 export function ReportDetailPage({
   vm,
   onResearch,
@@ -132,12 +126,6 @@ export function ReportDetailPage({
                 <h3>{vm.verdict.contactSuggestion.value || "当前信息不足，暂无法形成联系建议"}</h3>
                 <ExpandableText text={vm.verdict.recommendationReason.value} maxLength={320} />
               </div>
-            </div>
-
-            <div className="si-metric-strip">
-              <div><span>联系建议</span><strong>{vm.verdict.suggestedGrade === "D" ? "暂缓联系" : "建议联系"}</strong></div>
-              <div><span>产品匹配</span><strong>{confidenceLabel(vm.opportunity.overallConfidence.value)}</strong></div>
-              <div><span>机会置信度</span><strong>{confidenceLabel(topOpportunity?.confidence.value ?? vm.opportunity.overallConfidence.value)}</strong></div>
             </div>
 
             <h3 className="si-subheading">为什么值得联系</h3>
