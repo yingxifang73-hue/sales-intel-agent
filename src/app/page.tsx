@@ -55,6 +55,7 @@ type ActiveResearchMeta = {
   targetUrl: string;
   presetLabel: string;
   productName: string;
+  ts?: number;
 };
 
 type ResearchJobResponse = {
@@ -193,6 +194,29 @@ export default function Home() {
     let cancelled = false;
     let timer: number | undefined;
     const poll = async () => {
+      // Tasks saved before the GitHub Actions executor did not have a client
+      // timestamp. They cannot be resumed safely, so end them explicitly
+      // instead of leaving the user on a permanent loading screen.
+      if (!activeResearch.ts) {
+        try {
+          const response = await fetch(`/api/research/${activeResearch.id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${trialToken}` },
+            cache: "no-store",
+          });
+          const body = await response.json() as { message?: string; error?: string };
+          if (!cancelled) {
+            setError(body.message ?? body.error ?? "旧版未执行任务已结束，请重新发起调研。");
+            localStorage.removeItem(ACTIVE_RESEARCH_STORAGE_KEY);
+            setActiveResearch(null);
+            setPipelineState({ events: [] });
+            setIsRunning(false);
+          }
+        } catch (error) {
+          if (!cancelled) setError(error instanceof Error ? error.message : "无法结束旧版调研任务。");
+        }
+        return;
+      }
       try {
         const response = await fetch(`/api/research/${activeResearch.id}`, {
           headers: { Authorization: `Bearer ${trialToken}` },
@@ -208,6 +232,7 @@ export default function Home() {
             targetUrl: body.input.targetUrl,
             presetLabel: body.input.customIndustry || presets.find(([key]) => key === body.input?.preset)?.[1] || "通用",
             productName: body.input.sellerProfile.productName,
+            ts: activeResearch.ts,
           };
           setActiveResearch((previous) => (
             previous?.id === meta.id
@@ -333,6 +358,7 @@ export default function Home() {
           targetUrl: url,
           presetLabel: customIndustry.trim() || presets.find(([key]) => key === preset)?.[1] || "通用",
           productName: sellerProfile.productName,
+          ts: Date.now(),
         };
         localStorage.setItem(ACTIVE_RESEARCH_STORAGE_KEY, JSON.stringify(meta));
         setActiveResearch(meta);

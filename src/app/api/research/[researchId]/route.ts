@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConfig } from "@/lib/config";
-import { expireQueuedResearchJob, expireStalledResearchJob, loadAuthorizedResearchJob, settleTrialRunById } from "@/lib/research-jobs";
+import { expireQueuedResearchJob, expireStalledResearchJob, loadAuthorizedResearchJob, markResearchJobFailed, settleTrialRunById } from "@/lib/research-jobs";
 import { isQueuedResearchExpired, isRunningResearchStalled, runningResearchStageTimeoutMs } from "@/lib/research-job-timeout";
 import { tokenFromRequest } from "@/lib/trial";
 
@@ -56,5 +56,31 @@ export async function GET(request: Request, context: { params: Promise<{ researc
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "调研任务不存在。" }, { status: 404 });
+  }
+}
+
+/**
+ * Ends a persisted client job that can no longer be executed. This is used
+ * during executor migrations so a browser can never remain trapped on an old
+ * loading screen or lose a reserved trial run.
+ */
+export async function DELETE(request: Request, context: { params: Promise<{ researchId: string }> }) {
+  try {
+    const { researchId } = await context.params;
+    const accessToken = tokenFromRequest(request);
+    if (!accessToken) return NextResponse.json({ error: "请先输入有效兑换码。" }, { status: 401 });
+    const job = await loadAuthorizedResearchJob(researchId, accessToken);
+    if (job.status === "completed") {
+      return NextResponse.json({ error: "调研报告已完成，不能取消。" }, { status: 409 });
+    }
+    if (job.status !== "failed") {
+      await markResearchJobFailed(job.id, "此任务由旧版页面创建，未接入当前后台执行器，已自动结束并退回调研次数。");
+      await settleTrialRunById(job.trialRunId, false).catch((error) => {
+        console.error("Trial run release after legacy job cancellation failed:", error instanceof Error ? error.message : "unknown");
+      });
+    }
+    return NextResponse.json({ status: "failed", message: "旧版未执行任务已结束，本次调研次数已退回。" });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "无法结束旧版调研任务。" }, { status: 404 });
   }
 }
