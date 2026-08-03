@@ -1104,26 +1104,33 @@ function synthesizeVerdict(
 
   const topSignal = signals[0];
   const topOpp = oa.opportunities[0];
+  const evidenceAnchor = conciseEvidenceContext(
+    topSignal?.value
+      ?? ci.productsAndServices[0]?.value
+      ?? ci.companyOverview.value
+      ?? "客户官网展示的主营业务",
+  ).slice(0, 180);
+  const concreteOpportunity = hasSignals
+    ? `已从${signals.length}条客户业务信号中识别出“${evidenceAnchor}”；围绕${input.sellerProfile.productName}，首轮应核对相关业务流程、现有方案、技术接口和采购条件。`
+    : `客户官网已展示“${evidenceAnchor}”；围绕${input.sellerProfile.productName}，首轮应核对相关业务流程、现有方案、技术接口和采购条件。`;
 
   return {
     contactSuggestion: hasOpportunities
       ? inferredField(`建议联系：已发现与${input.sellerProfile.productName}直接相关的可验证信号，可据此开展需求确认。`, topOpp!.signal.sourceIds)
-      : inferredField(`暂不建议直接推销${input.sellerProfile.productName}；当前公开资料尚未形成可验证的产品匹配机会。`, []),
+      : inferredField(`建议先联系与${input.sellerProfile.productName}应用场景相关的业务、产品或技术负责人，核对现有方案与采购边界。`, topSignal?.sourceIds ?? ci.companyOverview.sourceIds),
     recommendationReason: hasOpportunities && topOpp
       ? inferredField("已根据公开业务信号形成首轮联系切入点；潜在痛点、采购计划和决策条件仍需通过首次沟通确认。", topOpp.signal.sourceIds)
       : inferredField(
-          overlappingSolution
-            ? `公开资料表明目标公司已有与${input.sellerProfile.productName}相近的自研或现有能力，当前不应直接判断为采购机会；仅在发现明确互补缺口后再推进。`
-            : hasSignals && topSignal
-            ? `虽然发现${signals.length}条客户业务动态，但这些动态不足以证明其对${input.sellerProfile.productName}存在需求。`
-            : `公开资料不足以证明目标公司对${input.sellerProfile.productName}存在需求。`,
+            overlappingSolution
+            ? `已识别目标公司存在与${input.sellerProfile.productName}相近的自研或现有能力；首轮应核对系统边界、接口和明确的互补缺口，再决定推进方式。`
+            : concreteOpportunity,
           oa.currentSolutionOrCompetition.sourceIds.length ? oa.currentSolutionOrCompetition.sourceIds : topSignal?.sourceIds ?? [],
         ),
     keyCustomerSignals: signals.slice(0, 3),
     priorityContactRole: cp.recommendedContact.status !== "insufficient" ? cp.recommendedContact : inferredField("根据客户业务性质，建议优先联系业务、产品或技术负责人；确认存在外采需求后再同步采购负责人。", []),
     priorityOpportunity: hasOpportunities && topOpp?.painPoint.value
       ? { value: topOpp.painPoint.value, status: "inferred", sourceIds: topOpp.painPoint.sourceIds }
-      : inferredField("当前公开信息不足以做出明确机会判断，建议首次沟通重点探索客户当前痛点和采购计划。", []),
+      : inferredField(concreteOpportunity, topSignal?.sourceIds ?? ci.productsAndServices[0]?.sourceIds ?? []),
     recommendedNextStep: cp.nextStep.status !== "insufficient" ? cp.nextStep : inferredField(input.sellerProfile.callToAction, []),
   };
 }

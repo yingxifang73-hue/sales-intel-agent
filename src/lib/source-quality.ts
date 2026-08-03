@@ -17,7 +17,7 @@ const COMPANY_PATTERN = /(?:about|about-us|company|profile|corporate|who-we-are|
 const PRODUCT_PATTERN = /(?:product|products|service|services|solution|solutions|platform|software|tools?|assistant|api|sdk|oem|odm|\u4ea7\u54c1|\u670d\u52a1|\u89e3\u51b3\u65b9\u6848|\u6838\u5fc3\u4e1a\u52a1|\u5de5\u5177|\u52a9\u624b|\u5f00\u653e\u63a5\u53e3|\u4e1a\u52a1)/i;
 const NEWS_PATTERN = /(?:news|press|blog|article|announcement|media|update|\u65b0\u95fb|\u8d44\u8baf|\u516c\u544a|\u53d1\u5e03|\u52a8\u6001)/i;
 const SIGNAL_PATTERN = /(?:case|customer|client|partner|career|hiring|recruit|investor|funding|expansion|\u5408\u4f5c|\u5ba2\u6237|\u6848\u4f8b|\u62db\u8058|\u6295\u8d44|\u878d\u8d44|\u6269\u5f20)/i;
-const PROMOTIONAL_PAGE_PATTERN = /(?:\u4f18\u60e0\u5238|\u6298\u540e|\u9650\u65f6\u6298\u6263|casino|coupon|promo\s*code)/i;
+const PROMOTIONAL_PAGE_PATTERN = /(?:\u4f18\u60e0\u5238|\u6298\u540e|\u9650\u65f6\u6298\u6263|\u5927\u724c\u6298\u6263|\u8d2d\u7269\u653b\u7565|\u4f18\u60e0\u4fe1\u606f|\u5546\u54c1\u63a8\u8350|casino|coupon|promo\s*code|deals?|discounts?)/i;
 const CAREER_OR_JOB_PATTERN = /(?:^|[\/\s_-])(career|careers|jobs?|hiring|recruit|recruitment)(?:[\/\s_-]|$)|\u62db\u8058|\u804c\u4f4d|\u6c42\u804c/i;
 const HELP_OR_SUPPORT_PATTERN = /(?:^|\.)(help|support)\.|\/(?:help|support|hc|docs?)(?:\/|$)|\u5e2e\u52a9\u4e2d\u5fc3|\u5e38\u89c1\u95ee\u9898/i;
 const CORE_COMPANY_PATTERN = /\/(?:about|about-us|company|corporate|profile|overview|who-we-are)(?:\/|$)|\u5173\u4e8e\u6211\u4eec|\u516c\u53f8\u4ecb\u7ecd/i;
@@ -127,6 +127,24 @@ function productRelevanceScore(source: Source, context?: SourceSelectionContext)
   return Math.min(score, 120);
 }
 
+function targetHostToken(targetUrl: string): string {
+  try {
+    const hostname = new URL(targetUrl).hostname.replace(/^www\./i, "");
+    const token = hostname.split(".")[0] ?? "";
+    const normalized = token.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    return new Set(["example", "test", "localhost", "demo"]).has(normalized) ? "" : normalized;
+  } catch {
+    return "";
+  }
+}
+
+function mentionsTargetHost(source: Source, targetUrl: string): boolean {
+  const token = targetHostToken(targetUrl);
+  if (token.length < 4) return true;
+  const inspected = `${source.title} ${source.content.slice(0, 12_000)}`.toLowerCase();
+  return inspected.includes(token);
+}
+
 export function assessSource(
   source: Source,
   targetUrl: string,
@@ -144,6 +162,16 @@ export function assessSource(
   const minimumLength = firstParty || source.sourceType === "official" ? 20 : 180;
   if (source.content.trim().length < minimumLength) {
     return { source, eligible: false, categories: [], score: 0, reason: "content_too_small" };
+  }
+
+  // Generic third-party pages are not company evidence merely because they
+  // are long. Keep official news and registries available, but reject
+  // unrelated pages that do not mention the target or seller context.
+  if (!firstParty && source.sourceType === "other" && context) {
+    const relevanceScore = productRelevanceScore(source, context);
+    if (relevanceScore < 6 && !mentionsTargetHost(source, targetUrl)) {
+      return { source, eligible: false, categories: [], score: 0, reason: "low_relevance" };
+    }
   }
 
   const categories = categorize(source);

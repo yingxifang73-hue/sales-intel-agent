@@ -14,6 +14,9 @@ const DIRECT_SELL_PATTERN = /(?:建议直接联系|建议联系并推销|直接�
 const COMPLEMENTARY_BOUNDARY_PATTERN = /(?:互补|补充|差异|能力缺口|边界|不替换|暂不建议直接推销)/i;
 const NEWS_PURPOSE_PATTERN = /\/(?:news|press|blog|article|announcement|media|updates?)(?:\/|$)|新闻|公告|发布|动态|资讯/i;
 const DATE_PATTERN = /(?:20\d{2}[-/.年]\d{1,2}(?:[-/.月]\d{1,2}日?)?|\d{1,2}月\d{1,2}日)/;
+const GENERIC_OPPORTUNITY_PATTERN = /(?:当前公开信息不足|公开资料不足以证明|不足以做出明确机会判断|没有找到明确机会|尚未形成可验证的产品匹配机会)/;
+const UNTRANSLATED_ENGLISH_PATTERN = /(?:\b(?:click|expand|read more|read next|latest news|home|menu|search|input|sign in|log in)\b)|(?:[A-Za-z]+\s+){7,}[A-Za-z]+/i;
+const MALFORMED_PUNCTUATION_PATTERN = /[”"]\s*[。；，、.]|([。！？；：，、])\1+/u;
 
 function collectLongText(value: unknown, collected: string[] = []): string[] {
   if (typeof value === "string") {
@@ -82,6 +85,30 @@ export function checkBanRules(report: SalesReport): BanViolation[] {
     violations.push({
       rule: "no_placeholder_or_search_summary",
       detail: "report contains search-summary or unfinished placeholder text",
+    });
+  }
+  if (GENERIC_OPPORTUNITY_PATTERN.test(`${report.salesVerdict.contactSuggestion.value ?? ""} ${report.salesVerdict.recommendationReason.value ?? ""} ${report.salesVerdict.priorityOpportunity.value ?? ""}`)) {
+    violations.push({
+      rule: "no_generic_opportunity_fallback",
+      detail: "opportunity conclusion is generic and does not describe a concrete evidence-based entry point",
+    });
+  }
+  const reportText = collectLongText({
+    salesVerdict: report.salesVerdict,
+    customerIntelligence: report.customerIntelligence,
+    opportunityAnalysis: report.opportunityAnalysis,
+    conversationPlan: report.conversationPlan,
+  });
+  if (UNTRANSLATED_ENGLISH_PATTERN.test(userFacingReport) || reportText.some((text) => UNTRANSLATED_ENGLISH_PATTERN.test(text))) {
+    violations.push({
+      rule: "no_untranslated_english_noise",
+      detail: "report contains crawler English text or an untranslated English sentence",
+    });
+  }
+  if (reportText.some((text) => MALFORMED_PUNCTUATION_PATTERN.test(text))) {
+    violations.push({
+      rule: "no_malformed_punctuation",
+      detail: "report contains repeated or incorrectly ordered punctuation",
     });
   }
   const longText = collectLongText({

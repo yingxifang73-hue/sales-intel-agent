@@ -27,6 +27,33 @@ const REPORT_PREFIX_PATTERN = /(?:根据|据|从)?\s*(?:目标公司(?:的)?\s*)
 const PUNCTUATION_ONLY_PATTERN = /^[\s"'`‘’“”«»「」『』【】()（）[\]{}，。；：、,.!?！？;:—–…·•]+$/u;
 const ENGLISH_UI_NOISE_PATTERN = /\b(?:click|expand|read more|read next|home|latest news|menu|search|input|icon|sign in|log in)\b/i;
 const CHINESE_UI_NOISE_PATTERN = /^(?:首页|产品信息|了解我们|加入我们|新闻动态|关于我们|关于米哈游|联系我们|联系方式|隐私政策|自律公约|廉政举报|廉正举报|游戏官网|微信公众号|查看更多|数据加载中|返回顶部|Bilibili)$/i;
+const IMAGE_ALT_PATTERN = /[（(]\s*(?:图\d*|图片|图为|上图|下图|示意图|图示|照片|图片来源)[^)）]{0,80}[)）]/g;
+const CHINESE_MEDIA_BOILERPLATE = [
+  /登录以发表评论/,
+  /特别声明[：:]?[^。\n]*(?:观点|立场)/,
+  /(?:评论区|评论列表|精彩评论|热门评论|最新评论|全部评论)/,
+  /^(?:相关搜索|相关推荐|热门推荐|为您推荐|猜你喜欢|大家还在看)$/,
+  /^(?:阅读更多|查看全文|展开全文|继续阅读|下一页|上一页|返回首页?)$/,
+  /(?:扫描|扫码|二维码|长按识别).*?(?:关注|下载|打开|查看)/,
+  /(?:责任[编辑编]|责编|编辑)[：:]/,
+  /(?:未经(?:许可|授权|允许)|严禁转载|禁止转载)/,
+];
+
+function hasChineseMediaBoilerplate(text: string): boolean {
+  return CHINESE_MEDIA_BOILERPLATE.some((pattern) => pattern.test(text.trim()));
+}
+
+function stripChineseMediaBoilerplate(text: string): string {
+  return text
+    .replace(/^(?:(?:首页|产品|服务|新闻动态|相关搜索|相关推荐|热门推荐|为您推荐|猜你喜欢|大家还在看|查看更多)\s*)+$/u, "")
+    .replace(/登录以发表评论/g, "")
+    .replace(/特别声明[：:]?[^。\n]*(?:观点|立场)[。]?/g, "")
+    .replace(/(?:扫描|扫码|二维码|长按识别).*?(?:关注|下载|打开|查看)/g, "")
+    .replace(/(?:责任[编辑编]|责编|编辑)[：:][^。\n]*/g, "")
+    .replace(/(?:未经(?:许可|授权|允许)|严禁转载|禁止转载)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 function isStandaloneNavigationLabel(value: string): boolean {
   const normalized = value
@@ -48,6 +75,16 @@ function navigationStats(tokens: string[]): { shortRatio: number; uniqueCount: n
     shortRatio: tokens.filter((token) => token.length <= 12).length / Math.max(tokens.length, 1),
     uniqueCount: new Set(normalized).size,
   };
+}
+
+function isMenuBarLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length < 60 || trimmed.length > 400) return false;
+  const tokens = trimmed.split(/\s+/u).filter(Boolean);
+  if (tokens.length < 8) return false;
+  const stats = navigationStats(tokens);
+  const hasDateOrFact = /20\d{2}|发布|宣布|合作|推出|完成|实现|研发|生产|销售|提供|拥有|位于|创立|成立于/.test(trimmed);
+  return stats.uniqueCount >= 7 && stats.shortRatio >= 0.7 && !hasDateOrFact && !/[。！？.!?]/.test(trimmed);
 }
 
 /**
@@ -184,12 +221,22 @@ export function cleanSourceText(value: string): string {
     .replace(/^(?:title|url source|published time|markdown content)\s*:\s*.*$/gim, " ")
     .replace(/\b(?:skip to main content|search menu|investor room|all rights reserved)\b/gi, " ")
     .replace(/\b(?:cookie consent|privacy policy|terms of (?:use|service)|accept all|copyright(?: \d{4})?|menu|search)\b/gi, " ")
+    .replace(IMAGE_ALT_PATTERN, " ")
     // Keep line boundaries until navigation and boilerplate can be filtered.
     .replace(/[^\S\r\n]+/g, " ")
     .replace(/\r\n?/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim());
-  return meaningfulSegments(decoded).join("\n\n").slice(0, 80_000);
+  const filtered = decoded
+    .split("\n")
+    .filter((line) => !isMenuBarLine(line))
+    .map((line) => stripChineseMediaBoilerplate(line))
+    .filter(Boolean)
+    .join("\n");
+  return meaningfulSegments(filtered)
+    .map((segment) => stripChineseMediaBoilerplate(segment))
+    .filter(Boolean)
+    .join("\n\n").slice(0, 80_000);
 }
 
 export function selectEvidenceExcerpts(source: Source, focus: string[] = []): string {
@@ -243,6 +290,8 @@ export function sanitizeChineseOutput(value: string): string {
     .replace(/[（(]\s*(?:来源|source)\s*[:：][^)）]+[)）]/gi, "")
     .replace(/(?:来源|source)\s*[:：]\s*[a-z0-9_-]{6,}/gi, "")
     .replace(/\s+([，。！？；：])/g, "$1")
+    .replace(/[”"]\s*[。；，、.]/g, "。")
+    .replace(/([。！？；：，、])\1+/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();
 }

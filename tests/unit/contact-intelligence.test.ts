@@ -14,6 +14,19 @@ const source: Source = {
 };
 
 describe("normalizeContactIntelligence", () => {
+  it("does not accept a prose sentence as a company address", () => {
+    const result = normalizeContactIntelligence({
+      channels: [{
+        kind: "address",
+        label: "公司地址",
+        value: "ing and resolving any issues you may encounter",
+        status: "verified",
+        sourceIds: ["S1"],
+      }],
+    }, [{ ...source, id: "S1", content: "公司地址：上海市浦东新区世纪大道100号" }], "https://example.com");
+
+    expect(result.channels.some((channel) => channel.kind === "address")).toBe(false);
+  });
   it("只保留在引用来源中真实出现的联系方式", () => {
     const result = normalizeContactIntelligence({
       channels: [

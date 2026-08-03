@@ -154,6 +154,18 @@ describe("report minimum quality", () => {
     ]));
   });
 
+  it("rejects generic opportunity fallback and untranslated crawler text", () => {
+    const report = completeReport();
+    report.salesVerdict.priorityOpportunity = field("当前公开信息不足以做出明确机会判断，建议首次沟通重点探索客户当前痛点和采购计划。", "inferred");
+    report.conversationPlan.opening30s = field("Click to expand the latest news menu", "inferred");
+
+    const violations = checkBanRules(report);
+    expect(violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: "no_generic_opportunity_fallback" }),
+      expect.objectContaining({ rule: "no_untranslated_english_noise" }),
+    ]));
+  });
+
   it("rejects cross-industry fallback text in a software SDK report", () => {
     const report = completeReport();
     report.reportMeta.sellerProductName = "会议录音批量转写 Token 计费统计 SDK";

@@ -49,6 +49,30 @@ describe("source quality tiers", () => {
     expect(assessment.reason).toBe("commercial_promotion");
   });
 
+  it("rejects an unrelated third-party page even when it is long enough", () => {
+    const assessment = assessSource(source({
+      url: "https://example.com/deals",
+      canonicalUrl: "https://example.com/deals",
+      title: "与目标企业无关的行业分析",
+      content: "这是一个与目标企业无关的泛行业分析页面，内容没有目标公司的业务事实。".repeat(30),
+      sourceType: "other",
+    }), "https://www.anker.com", {
+      customIndustry: "出海电商",
+      preset: "ecommerce",
+      sellerProfile: {
+        productName: "跨境电商管理软件",
+        valueProposition: "",
+        targetCustomer: "",
+        customerProblems: [],
+        proofPoints: [],
+        callToAction: "安排沟通",
+      },
+    });
+
+    expect(assessment.eligible).toBe(false);
+    expect(assessment.reason).toBe("low_relevance");
+  });
+
   it("ranks an exchange disclosure above a general news repost", () => {
     const disclosure = assessSource(source({
       url: "https://static.sse.com.cn/stock/disclosure/example.pdf",
