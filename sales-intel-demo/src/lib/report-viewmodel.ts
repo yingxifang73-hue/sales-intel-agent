@@ -207,6 +207,9 @@ function cleanDisplayValue(value: string | undefined): string {
   const cleaned = sanitizeReportText((value ?? "")
     .replace(/\[(?:搜索摘要|待验证|待确认)\]\s*/gu, "")
     .replace(/^(?:搜索摘要|待验证|待确认)\s*[：:，,]?\s*/u, "")
+    // 清理 LLM 输出中残留的 markdown 标记符号
+    .replace(/[`*_#~]/g, "")
+    .replace(/\s{2,}/g, " ")
     .trim());
   return isUserFacingChineseText(cleaned) ? cleaned : "";
 }

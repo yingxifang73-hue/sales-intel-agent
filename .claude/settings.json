@@ -8,7 +8,8 @@
       "Bash('@ *)",
       "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\([l.get\\('text',''\\) for l in data[:100]]\\)\\)\")",
       "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f'{e[\\\\\"envVar\\\\\"][\\\\\"key\\\\\"]}={e[\\\\\"envVar\\\\\"][\\\\\"value\\\\\"]}'\\) for e in data]\")",
-      "Read(//d//**)"
+      "Read(//d//**)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
