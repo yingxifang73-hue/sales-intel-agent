@@ -22,6 +22,7 @@ import {
   reportModuleLabel,
   reportModuleProgress,
   SOURCE_FACT_BATCH_SIZE,
+  SOURCE_FACT_CONCURRENCY,
   sourceFactBatchCount,
   type ReportModuleStage,
 } from "@/lib/research-workflow-state";
@@ -294,9 +295,9 @@ export async function runResearchJob(jobId: string) {
     await beginFactExtraction(jobId);
     const extractions: SourceFactExtractionResult[] = [];
     const batchIndexes = Array.from({ length: batchCount }, (_, batchIndex) => batchIndex);
-    for (let offset = 0; offset < batchIndexes.length; offset += 4) {
+    for (let offset = 0; offset < batchIndexes.length; offset += SOURCE_FACT_CONCURRENCY) {
       extractions.push(...await Promise.all(
-        batchIndexes.slice(offset, offset + 4).map((batchIndex) => extractFactsBatch(jobId, batchIndex)),
+        batchIndexes.slice(offset, offset + SOURCE_FACT_CONCURRENCY).map((batchIndex) => extractFactsBatch(jobId, batchIndex)),
       ));
     }
     await storeFactExtractions(jobId, extractions);
