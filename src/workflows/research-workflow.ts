@@ -1,4 +1,4 @@
-import { buildUndeliverableReport, checkMinimum } from "@/lib/quality-gate";
+import { buildUndeliverableReport, checkDeliveryMinimum, checkMinimum } from "@/lib/quality-gate";
 import { getConfig } from "@/lib/config";
 import { dedupeSources } from "@/lib/dedupe";
 import { enhanceWithLlm, extractSourceFactBundles, type SourceFactExtractionResult } from "@/lib/llm";
@@ -15,7 +15,7 @@ import {
 } from "@/lib/research-jobs";
 import { collectProductionSources, synthesizeReport } from "@/lib/research";
 import { assessEvidenceReadiness, selectReportSources } from "@/lib/source-quality";
-import { SalesReportSchema } from "@/lib/types";
+import { SalesReportSchema, type SalesReport } from "@/lib/types";
 import {
   isReportModuleComplete,
   mergeSourceFactExtraction,
@@ -27,7 +27,7 @@ import {
   type ReportModuleStage,
 } from "@/lib/research-workflow-state";
 import { presentResearchFailure } from "@/lib/workflow-error";
-import { selectRepairStages, type ReportGenerationStage } from "@/lib/report-repair";
+import { selectRepairStages, shouldStoreRepairCandidate, type ReportGenerationStage } from "@/lib/report-repair";
 import { normalizeSalesReportAudit } from "@/lib/quality-audit";
 import { normalizeSalesReportNarrative } from "@/lib/report-text";
 import { ZodError } from "zod";
@@ -220,6 +220,8 @@ async function repairReportModule(
   const before = checkMinimum(current);
   if (before.passed) return;
 
+  const beforeDelivery = checkDeliveryMinimum(current);
+
   const repairStages = selectRepairStages(before.missing, current.qualityAudit?.rejectedFields);
   if (!repairStages.includes(modelStage)) return;
 
@@ -235,14 +237,52 @@ async function repairReportModule(
     job.selectedSources,
     getConfig(),
     job.sourceFacts,
-    { stages: [modelStage] },
+    {
+      stages: [modelStage],
+      qualityFeedback: current.qualityAudit?.rejectedFields.filter(
+        (item) => item.field.startsWith("qualityJudge."),
+      ) ?? [],
+    },
   );
   repaired.metrics.durationMs = Math.max(0, Date.now() - new Date(job.createdAt).getTime());
   const candidate = parseWorkflowReport(repaired, label);
   const after = checkMinimum(candidate);
+  const afterDelivery = checkDeliveryMinimum(candidate);
+  const moduleChanged = reportModuleSnapshot(current, module) !== reportModuleSnapshot(candidate, module);
 
-  if (after.passed || after.missing.length < before.missing.length) {
+  if (shouldStoreRepairCandidate({
+    modelStage,
+    before,
+    after,
+    beforeDelivery,
+    afterDelivery,
+    moduleChanged,
+  })) {
     await storeResearchReport(jobId, candidate);
+  }
+}
+
+function reportModuleSnapshot(report: SalesReport, module: ReportModuleStage): string {
+  switch (module) {
+    case "customer_profile":
+      return JSON.stringify({
+        customerIntelligence: report.customerIntelligence,
+        contactIntelligence: report.contactIntelligence,
+        keyCustomerSignals: report.salesVerdict.keyCustomerSignals,
+      });
+    case "product_fit":
+    case "opportunities":
+      return JSON.stringify(report.opportunityAnalysis);
+    case "talk_track":
+    case "next_step":
+      return JSON.stringify(report.conversationPlan);
+    case "sales_verdict":
+      return JSON.stringify({
+        salesVerdict: report.salesVerdict,
+        qualityReview: report.qualityAudit?.rejectedFields.filter(
+          (item) => item.field.startsWith("qualityJudge."),
+        ),
+      });
   }
 }
 
@@ -268,9 +308,10 @@ async function verifyAndSettle(jobId: string) {
   if (!job.report) throw new Error("最终报告缺失，不能结算调研次数。");
   await setResearchJobStage(jobId, "sales_verdict", 98, "正在检查销售结论与报告完整性。");
   const report = parseWorkflowReport(job.report, "报告校验");
-  const minimum = checkMinimum(report);
+  const minimum = checkDeliveryMinimum(report);
   const finalized = {
     ...report,
+    reportMeta: { ...report.reportMeta, status: minimum.passed ? "达标" : "未达标" },
     qualityAudit: report.qualityAudit ? { ...report.qualityAudit, minimumStandardMet: minimum.passed, missingFields: minimum.missing } : report.qualityAudit,
   };
   await storeResearchReport(jobId, parseWorkflowReport(finalized, "报告校验"));
