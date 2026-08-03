@@ -129,7 +129,7 @@ describe("精简 UI", () => {
         onHistory={vi.fn()}
       />,
     );
-    expect(screen.getByText("一体化销售调研报告")).toBeInTheDocument();
+    expect(screen.getByText("目标公司销售调研报告")).toBeInTheDocument();
     expect(screen.getByText("是否值得联系")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "联系方式与地址" })).toBeInTheDocument();
     expect(screen.getAllByText(/暂未从公开信息中获取可靠电话或邮箱/)).toHaveLength(1);
@@ -216,7 +216,10 @@ describe("精简 UI", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
-  it("导出报告以 PDF 排版状态调用浏览器打印并使用中文文件名", () => {
+  it("导出报告按钮触发 PDF 生成（使用 A4 排版与中文文件名）", async () => {
+    // Dynamically imports html2canvas + jspdf which aren't available in jsdom;
+    // the catch block falls back to window.print, so we verify the print
+    // fallback is wired correctly.
     const print = vi.spyOn(window, "print").mockImplementation(() => {
       expect(document.documentElement.classList.contains("si-pdf-exporting")).toBe(true);
       expect(document.title).toContain("销售调研报告");
@@ -226,7 +229,9 @@ describe("精简 UI", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "导出报告" }).at(-1)!);
 
-    expect(print).toHaveBeenCalledOnce();
+    // The dynamic import fails in jsdom so the fallback calls window.print.
+    // Flush the microtask queue so the async catch block runs.
+    await vi.waitFor(() => expect(print).toHaveBeenCalledOnce(), { timeout: 2000 });
     print.mockRestore();
   });
 

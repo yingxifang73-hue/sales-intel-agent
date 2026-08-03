@@ -436,6 +436,7 @@ export default function Home() {
                     <button type="button" className="si-secondary-action" onClick={() => {
                       setTargetUrl("");
                       setPreset("general");
+                      setCustomIndustry("");
                       setProfile({ productName: "", valueProposition: "", targetCustomer: "", customerProblems: [""], proofPoints: [""], callToAction: DEFAULT_CALL_TO_ACTION });
                     }}>清空</button>
                     <button type="submit" className="si-primary-action">开始调研</button>

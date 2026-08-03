@@ -9,7 +9,15 @@
       "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\([l.get\\('text',''\\) for l in data[:100]]\\)\\)\")",
       "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f'{e[\\\\\"envVar\\\\\"][\\\\\"key\\\\\"]}={e[\\\\\"envVar\\\\\"][\\\\\"value\\\\\"]}'\\) for e in data]\")",
       "Read(//d//**)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\)[0]['deploy']; print\\(f\\\\\"status={d['status']} commit={d['commit']['id'][:7]} msg={d['commit']['message'][:50]}\\\\\"\\)\")",
+      "Bash(python3 -c \"import sys,json; [print\\(e['envVar']['key'],'=',e['envVar']['value']\\) for e in json.load\\(sys.stdin\\) if e['envVar']['key']=='OPENAI_MODEL']\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({'name':d['name'],'branch':d.get\\('branch'\\),'autoDeploy':d.get\\('autoDeploy'\\),'envVars':[{'key':e['key'],'value':e.get\\('value','***'\\)} for e in d.get\\('envVars',[]\\)]}, indent=2, ensure_ascii=False\\)\\)\")",
+      "WebFetch(domain:sales-intel-agent.onrender.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(Start-Process \"msedge\" \"https://github.com/yingxifang73-hue/sales-intel-agent/actions\")",
+      "PowerShell(Start-Process \"msedge\" \"https://github.com/yingxifang73-hue/sales-intel-agent/actions\")",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }

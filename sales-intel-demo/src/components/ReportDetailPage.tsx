@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import type { ReportViewModel } from "@/lib/report-viewmodel";
 import { AppShell } from "./AppShell";
 import { ContactSection } from "./ContactSection";
@@ -53,7 +54,11 @@ export function ReportDetailPage({
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const exportPdf = () => {
+  const [exporting, setExporting] = useState(false);
+
+  const exportPdf = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
     const previousTitle = document.title;
     const closedChapters = [...document.querySelectorAll<HTMLDetailsElement>(".si-report-document details:not([open])")];
     let cleanedUp = false;
@@ -65,20 +70,70 @@ export function ReportDetailPage({
       closedChapters.forEach((chapter) => chapter.open = false);
     };
 
-    closedChapters.forEach((chapter) => chapter.open = true);
-    document.title = `${vm.companyName}-销售调研报告`;
-    document.documentElement.classList.add("si-pdf-exporting");
-    window.addEventListener("afterprint", cleanup, { once: true });
-
-    // Force one layout pass so expanded chapters and print-only typography are
-    // present before the browser captures its PDF preview.
-    void document.body.offsetHeight;
     try {
+      // Expand all chapters so the PDF includes every section.
+      closedChapters.forEach((chapter) => chapter.open = true);
+      document.title = `${vm.companyName}-销售调研报告`;
+      document.documentElement.classList.add("si-pdf-exporting");
+      void document.body.offsetHeight;
+
+      const [{ default: html2canvas }, { default: JsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
+      const article = document.querySelector<HTMLElement>(".si-report-document");
+      if (!article) throw new Error("报告内容不存在");
+
+      const canvas = await html2canvas(article, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+
+      const pageWidth = 210; // A4 mm
+      const pageHeight = 297;
+      const margin = 12;
+      const contentWidth = pageWidth - margin * 2;
+      const contentHeight = pageHeight - margin * 2;
+
+      const imgWidth = contentWidth;
+      const imgHeight = (canvas.height * contentWidth) / canvas.width;
+
+      const pdf = new JsPDF({ orientation: imgHeight > imgWidth ? "portrait" : "landscape", unit: "mm", format: "a4" });
+      let remaining = imgHeight;
+      let sourceY = 0;
+
+      while (remaining > 0) {
+        const sliceHeight = Math.min(remaining, contentHeight);
+        const destY = remaining === imgHeight ? margin : margin;
+        // Create a temporary canvas slice so tall images don't break on Safari.
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.round((sliceHeight / imgHeight) * canvas.height);
+        const ctx = sliceCanvas.getContext("2d")!;
+        ctx.drawImage(
+          canvas,
+          0, sourceY, canvas.width, sliceCanvas.height,
+          0, 0, canvas.width, sliceCanvas.height,
+        );
+        pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, destY, imgWidth, sliceHeight);
+
+        sourceY += sliceCanvas.height;
+        remaining -= sliceHeight;
+        if (remaining > 0) pdf.addPage();
+      }
+
+      pdf.save(`${vm.companyName}-销售调研报告.pdf`);
+    } catch (err) {
+      console.error("PDF export failed", err);
+      // Fallback to browser print on error.
       window.print();
     } finally {
-      window.setTimeout(cleanup, 1_000);
+      cleanup();
+      setExporting(false);
     }
-  };
+  }, [exporting, vm.companyName]);
 
   const topOpportunity = vm.opportunity.opportunities[0];
   const contactChannels = vm.contacts.channels.filter((item) => (
@@ -109,9 +164,11 @@ export function ReportDetailPage({
 
         <article className="si-report-document">
           <header className="si-report-toolbar">
-            <h1>一体化销售调研报告</h1>
+            <h1>{vm.companyName}销售调研报告</h1>
             <div>
-              <button type="button" className="si-primary-action" onClick={exportPdf}>导出报告</button>
+              <button type="button" className="si-primary-action" onClick={exportPdf} disabled={exporting}>
+                {exporting ? "正在生成 PDF…" : "导出报告"}
+              </button>
             </div>
           </header>
 
