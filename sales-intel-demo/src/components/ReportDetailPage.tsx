@@ -125,6 +125,29 @@ export function ReportDetailPage({
           </div>
 
           <section id="verdict" className="si-report-section si-verdict-section">
+            {vm.reportStatus === "未达标" && (
+              <div className="si-below-standard-banner">
+                <div className="si-below-standard-banner-icon">!</div>
+                <div className="si-below-standard-banner-body">
+                  <h2>该客户与你方产品的公开信息匹配度较低</h2>
+                  <p>
+                    基于当前公开可获取的信息，系统未找到能直接支撑你方产品匹配的明确机会。
+                    这不代表客户无法合作——可能只是公开渠道缺少技术栈、采购需求等关键信息。
+                    下方已汇总所有已采集的公司背景，你可据此准备首次联系，通过沟通了解客户真实需求。
+                  </p>
+                  {vm.evidence.dataRisks.length > 0 && (
+                    <details className="si-below-standard-details">
+                      <summary>查看完整性说明（{vm.evidence.dataRisks.length} 项）</summary>
+                      <ul>
+                        {vm.evidence.dataRisks.slice(0, 12).map((risk, i) => (
+                          <li key={i}>{risk}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              </div>
+            )}
             <p className="si-section-number">1</p>
             <h2>是否值得联系</h2>
             <div className="si-verdict-lead">

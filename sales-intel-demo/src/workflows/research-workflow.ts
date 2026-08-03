@@ -1,4 +1,4 @@
-import { buildUndeliverableReport, checkMinimum } from "@/lib/quality-gate";
+import { checkMinimum } from "@/lib/quality-gate";
 import { getConfig } from "@/lib/config";
 import { dedupeSources } from "@/lib/dedupe";
 import { enhanceWithLlm, extractSourceFactBundles, type SourceFactExtractionResult } from "@/lib/llm";
@@ -271,9 +271,10 @@ async function verifyAndSettle(jobId: string) {
     qualityAudit: report.qualityAudit ? { ...report.qualityAudit, minimumStandardMet: minimum.passed, missingFields: minimum.missing } : report.qualityAudit,
   };
   await storeResearchReport(jobId, parseWorkflowReport(finalized, "报告校验"));
-  if (!minimum.passed) {
-    throw new Error(buildUndeliverableReport(minimum.missing));
-  }
+  // Even when the report does not meet the minimum delivery standard, the
+  // collected company facts and analysis are still useful for the salesperson.
+  // We complete the job with "未达标" status instead of failing it so the
+  // frontend renders the full report page with a low-match banner.
   await settleTrialRunById(job.trialRunId, true);
   await markResearchJobCompleted(jobId);
 }
