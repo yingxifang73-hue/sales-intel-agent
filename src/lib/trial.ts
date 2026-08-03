@@ -11,6 +11,8 @@ export interface TrialReservation extends TrialStatus {
   runId: string;
 }
 
+const OWNER_TRIAL_CODE = "SIA-OWNER-2026-PERM";
+
 function requiredEnv(name: "NEXT_PUBLIC_SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY"): string {
   const value = process.env[name];
   if (!value) throw new Error(`缺少 ${name} 配置。`);
@@ -36,7 +38,39 @@ export function tokenFromRequest(request: Request): string | undefined {
 }
 
 export async function redeemTrialCode(code: string): Promise<{ accessToken: string; trial: TrialStatus }> {
-  const { data, error } = await serviceClient().rpc("redeem_trial_code", { p_code: code.trim().toUpperCase() });
+  const normalizedCode = code.trim().toUpperCase();
+  const client = serviceClient();
+
+  // The owner code is intentionally reusable. The original redeem function
+  // rejects any previously claimed code, which made the permanent code fail
+  // after its first redemption. Clear only its old session before redeeming;
+  // never touch a session while one of its research runs is still reserved.
+  if (normalizedCode === OWNER_TRIAL_CODE) {
+    const { data: ownerCode, error: ownerError } = await client
+      .from("trial_codes")
+      .select("id, access_token_hash, revoked_at")
+      .eq("code", OWNER_TRIAL_CODE)
+      .maybeSingle();
+    if (ownerError) throw new Error(ownerError.message);
+    if (ownerCode?.id) {
+      const { data: activeRuns, error: activeRunsError } = await client
+        .from("trial_runs")
+        .select("id")
+        .eq("trial_code_id", ownerCode.id)
+        .eq("status", "reserved")
+        .limit(1);
+      if (activeRunsError) throw new Error(activeRunsError.message);
+      if ((activeRuns ?? []).length === 0) {
+        const { error: resetError } = await client
+          .from("trial_codes")
+          .update({ access_token_hash: null, claimed_at: null, revoked_at: null })
+          .eq("id", ownerCode.id);
+        if (resetError) throw new Error(resetError.message);
+      }
+    }
+  }
+
+  const { data, error } = await client.rpc("redeem_trial_code", { p_code: normalizedCode });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : data;
   if (!row || typeof row !== "object") throw new Error("兑换码不可用或已被使用。");
