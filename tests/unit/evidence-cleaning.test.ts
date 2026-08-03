@@ -23,6 +23,8 @@ describe("evidence cleaning", () => {
     expect(isUserFacingChineseText("Click to expand the latest news menu")).toBe(false);
     expect(isUserFacingChineseText("公司介绍：主营企业软件服务。")).toBe(true);
     expect(sanitizeChineseOutput("公司介绍”。。")).toBe("公司介绍。");
+    expect(sanitizeChineseOutput("我们提供“销售助手”。")).toBe("我们提供“销售助手”。");
+    expect(sanitizeChineseOutput("公开资料提到“公司已发布新品。”。")).toBe("公开资料提到“公司已发布新品。”");
   });
   it("separates homepage navigation from factual body content", () => {
     const raw = [

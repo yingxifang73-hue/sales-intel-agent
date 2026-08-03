@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkBanRules, checkMinimum } from "@/lib/quality-gate";
+import { normalizeSalesReportNarrative } from "@/lib/report-text";
 import type { SalesReport } from "@/lib/types";
 
 const sourceId = "quality-source";
@@ -110,6 +111,36 @@ function completeReport(): SalesReport {
 describe("report minimum quality", () => {
   it("accepts a complete structured report with partial-but-usable recovery stages", () => {
     expect(checkMinimum(completeReport())).toEqual({ passed: true, missing: [] });
+  });
+
+  it("does not reject normal Chinese punctuation after a closing quotation mark", () => {
+    const report = completeReport();
+    report.conversationPlan.opening30s = field(
+      "我们关注到贵司已发布“智能营销平台”。希望进一步了解该平台目前覆盖的业务流程、评价指标和系统接口。",
+      "inferred",
+    );
+
+    expect(checkBanRules(report)).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: "no_malformed_punctuation" }),
+    ]));
+  });
+
+  it("normalizes malformed punctuation across every generated narrative before audit", () => {
+    const report = completeReport();
+    report.salesVerdict.recommendationReason.value = "目标公司已发布新品。。";
+    report.customerIntelligence.companyOverview.value = "公开资料提到“公司已发布新品。”。";
+    report.opportunityAnalysis.opportunities[0]!.productMatch.value = "可先验证接口兼容性。。";
+    report.conversationPlan.valueBridge.value = "帮助团队提升效率。。";
+
+    const normalized = normalizeSalesReportNarrative(report);
+
+    expect(normalized.salesVerdict.recommendationReason.value).toBe("目标公司已发布新品。");
+    expect(normalized.customerIntelligence.companyOverview.value).toBe("公开资料提到“公司已发布新品。”");
+    expect(normalized.opportunityAnalysis.opportunities[0]!.productMatch.value).toBe("可先验证接口兼容性。");
+    expect(normalized.conversationPlan.valueBridge.value).toBe("帮助团队提升效率。");
+    expect(checkBanRules(normalized)).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: "no_malformed_punctuation" }),
+    ]));
   });
 
   it("rejects thin core chapters and placeholder contamination", () => {

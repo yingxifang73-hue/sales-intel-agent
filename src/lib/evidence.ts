@@ -290,7 +290,8 @@ export function sanitizeChineseOutput(value: string): string {
     .replace(/[（(]\s*(?:来源|source)\s*[:：][^)）]+[)）]/gi, "")
     .replace(/(?:来源|source)\s*[:：]\s*[a-z0-9_-]{6,}/gi, "")
     .replace(/\s+([，。！？；：])/g, "$1")
-    .replace(/[”"]\s*[。；，、.]/g, "。")
+    .replace(/([。！？；：，、])\s*([”"])\s*[。！？；：，、.]/g, "$1$2")
+    .replace(/[”"]\s*([。；，、.])\1+/g, "。")
     .replace(/([。！？；：，、])\1+/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();

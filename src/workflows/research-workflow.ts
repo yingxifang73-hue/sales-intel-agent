@@ -29,11 +29,13 @@ import {
 import { presentResearchFailure } from "@/lib/workflow-error";
 import { selectRepairStages, type ReportGenerationStage } from "@/lib/report-repair";
 import { normalizeSalesReportAudit } from "@/lib/quality-audit";
+import { normalizeSalesReportNarrative } from "@/lib/report-text";
 import { ZodError } from "zod";
 
 function parseWorkflowReport(value: unknown, stage: string) {
   try {
-    return SalesReportSchema.parse(normalizeSalesReportAudit(value));
+    const parsed = SalesReportSchema.parse(normalizeSalesReportAudit(value));
+    return SalesReportSchema.parse(normalizeSalesReportNarrative(parsed));
   } catch (error) {
     if (error instanceof ZodError) {
       console.error(JSON.stringify({

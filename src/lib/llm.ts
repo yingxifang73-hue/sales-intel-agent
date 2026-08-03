@@ -222,6 +222,10 @@ function conciseEvidenceContext(value: string | undefined): string {
   return (sentences.length ? sentences.slice(0, 2).join(" ") : cleaned).trim();
 }
 
+function withoutTerminalPunctuation(value: string): string {
+  return value.trim().replace(/[。！？；：，、.!?;:,\s]+$/u, "");
+}
+
 // ─── LLM 调用（原生 fetch，避开 SDK 兼容问题）───
 
 type OpenAiCompletionPayload = {
@@ -845,10 +849,15 @@ export function ensureConversationDepth(
   cp: ConversationPlan,
 ): ConversationPlan {
   const productName = input.sellerProfile.productName;
-  const value = input.sellerProfile.valueProposition || `围绕${productName}提供可验证的效率、质量或业务改进能力`;
+  const value = withoutTerminalPunctuation(
+    input.sellerProfile.valueProposition || `围绕${productName}提供可验证的效率、质量或业务改进能力`,
+  );
   const context = ci.recentUpdates[0] ?? ci.productsAndServices[0];
   const sourceIds = context?.sourceIds ?? ci.companyOverview.sourceIds;
   const contextText = conciseEvidenceContext(context?.value ?? ci.companyOverview.value) || "贵司公开业务信息";
+  const quotedContext = /[。！？!?]$/u.test(contextText)
+    ? `“${contextText}”`
+    : `“${contextText}”。`;
   const topOpportunity = oa.opportunities[0];
 
   return {
@@ -860,7 +869,7 @@ export function ensureConversationDepth(
       : cp.communicationGoal,
     opening30s: needsField(cp.opening30s, 60)
       ? inferredField(
-          `我们关注到贵司公开资料提到“${contextText}”。我们提供${productName}，希望先了解这一业务场景目前的流程、规模和评价指标，判断是否存在一个范围可控、结果可衡量的试点切入点。`,
+          `我们关注到贵司公开资料提到${quotedContext}我们提供${productName}，希望先了解这一业务场景目前的流程、规模和评价指标，判断是否存在一个范围可控、结果可衡量的试点切入点。`,
           sourceIds,
         )
       : cp.opening30s,
@@ -1104,12 +1113,12 @@ function synthesizeVerdict(
 
   const topSignal = signals[0];
   const topOpp = oa.opportunities[0];
-  const evidenceAnchor = conciseEvidenceContext(
+  const evidenceAnchor = withoutTerminalPunctuation(conciseEvidenceContext(
     topSignal?.value
       ?? ci.productsAndServices[0]?.value
       ?? ci.companyOverview.value
       ?? "客户官网展示的主营业务",
-  ).slice(0, 180);
+  ).slice(0, 180));
   const concreteOpportunity = hasSignals
     ? `已从${signals.length}条客户业务信号中识别出“${evidenceAnchor}”；围绕${input.sellerProfile.productName}，首轮应核对相关业务流程、现有方案、技术接口和采购条件。`
     : `客户官网已展示“${evidenceAnchor}”；围绕${input.sellerProfile.productName}，首轮应核对相关业务流程、现有方案、技术接口和采购条件。`;

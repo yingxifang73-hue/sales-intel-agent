@@ -16,7 +16,7 @@ const NEWS_PURPOSE_PATTERN = /\/(?:news|press|blog|article|announcement|media|up
 const DATE_PATTERN = /(?:20\d{2}[-/.年]\d{1,2}(?:[-/.月]\d{1,2}日?)?|\d{1,2}月\d{1,2}日)/;
 const GENERIC_OPPORTUNITY_PATTERN = /(?:当前公开信息不足|公开资料不足以证明|不足以做出明确机会判断|没有找到明确机会|尚未形成可验证的产品匹配机会)/;
 const UNTRANSLATED_ENGLISH_PATTERN = /(?:\b(?:click|expand|read more|read next|latest news|home|menu|search|input|sign in|log in)\b)|(?:[A-Za-z]+\s+){7,}[A-Za-z]+/i;
-const MALFORMED_PUNCTUATION_PATTERN = /[”"]\s*[。；，、.]|([。！？；：，、])\1+/u;
+const MALFORMED_PUNCTUATION_PATTERN = /[。！？；：，、]\s*[”"]\s*[。！？；：，、.]|([。！？；：，、])\1+/u;
 
 function collectLongText(value: unknown, collected: string[] = []): string[] {
   if (typeof value === "string") {
