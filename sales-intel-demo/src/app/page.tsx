@@ -55,6 +55,7 @@ type ActiveResearchMeta = {
   targetUrl: string;
   presetLabel: string;
   productName: string;
+  ts: number;
 };
 
 type ResearchJobResponse = {
@@ -177,7 +178,12 @@ export default function Home() {
         const raw = localStorage.getItem(ACTIVE_RESEARCH_STORAGE_KEY);
         if (!raw) return;
         const parsed = JSON.parse(raw) as ActiveResearchMeta;
-        if (parsed?.id && parsed.targetUrl && parsed.productName) {
+        if (parsed?.id && parsed.targetUrl && parsed.productName && parsed.ts) {
+          // 超过 30 分钟的旧任务自动放弃
+          if (Date.now() - parsed.ts > 30 * 60 * 1000) {
+            localStorage.removeItem(ACTIVE_RESEARCH_STORAGE_KEY);
+            return;
+          }
           setActiveResearch(parsed);
           setIsRunning(true);
         }
@@ -210,6 +216,7 @@ export default function Home() {
             targetUrl: body.input.targetUrl,
             presetLabel: body.input.customIndustry || presets.find(([key]) => key === body.input?.preset)?.[1] || "通用",
             productName: body.input.sellerProfile.productName,
+            ts: Date.now(),
           };
           setActiveResearch((previous) => (
             previous?.id === meta.id
@@ -344,6 +351,7 @@ export default function Home() {
           targetUrl: url,
           presetLabel: customIndustry.trim() || presets.find(([key]) => key === preset)?.[1] || "通用",
           productName: sellerProfile.productName,
+          ts: Date.now(),
         };
         localStorage.setItem(ACTIVE_RESEARCH_STORAGE_KEY, JSON.stringify(meta));
         setActiveResearch(meta);
