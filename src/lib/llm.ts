@@ -252,9 +252,20 @@ async function readOpenAiSseContent(response: Response): Promise<string> {
   return content;
 }
 
+/**
+ * Supports OpenAI-compatible providers configured with either a host URL
+ * (https://provider.example) or a versioned URL (https://provider.example/v1).
+ * Appending /v1 twice makes the provider return 404 before any research starts.
+ */
+export function chatCompletionsUrl(baseUrl: string): string {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  return /\/v1$/i.test(normalized)
+    ? `${normalized}/chat/completions`
+    : `${normalized}/v1/chat/completions`;
+}
+
 async function completeJson(config: AppConfig, system: string, payload: unknown, maxTokens: number, repair = false): Promise<string> {
-  const baseUrl = config.OPENAI_BASE_URL.replace(/\/$/, "");
-  const url = `${baseUrl}/v1/chat/completions`;
+  const url = chatCompletionsUrl(config.OPENAI_BASE_URL);
 
   // A slow provider (e.g. proxied reasoning models) can need more than one
   // round trip for a structured JSON response. Retry on transient failures
