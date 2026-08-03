@@ -7,6 +7,8 @@ export type GitHubDispatchConfig = {
 type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
 
 const WORKFLOW_FILE = "research-runner.yml";
+const DEFAULT_REPOSITORY = "yingxifang73-hue/sales-intel-agent";
+const DEFAULT_REF = "feat/sales-intelligence-demo";
 
 function required(value: string | undefined, name: string): string {
   const trimmed = value?.trim();
@@ -19,8 +21,10 @@ export async function dispatchResearchJob(
   config: GitHubDispatchConfig,
   fetcher: Fetcher = fetch,
 ): Promise<void> {
-  const repository = required(config.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
-  const ref = required(config.GITHUB_REF, "GITHUB_REF");
+  // The deployment target belongs to this product and is not a secret. Keep a
+  // safe default so a Render environment-variable edit cannot stop all users.
+  const repository = config.GITHUB_REPOSITORY?.trim() || DEFAULT_REPOSITORY;
+  const ref = config.GITHUB_REF?.trim() || DEFAULT_REF;
   const token = required(config.GITHUB_DISPATCH_TOKEN, "GITHUB_DISPATCH_TOKEN");
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) {
     throw new Error("GITHUB_REPOSITORY 必须使用 owner/repository 格式。");
