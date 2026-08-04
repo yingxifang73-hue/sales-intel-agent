@@ -216,23 +216,21 @@ describe("精简 UI", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
-  it("导出报告按钮应用 PDF 排版样式并使用中文文件名", () => {
-    // The export creates a hidden iframe and calls print() on it, which jsdom
-    // does not support. We verify the document-level side effects: chapters
-    // are expanded, the print CSS class is applied, and the document title is
-    // updated for the PDF file name.
+  it("导出报告按钮展开章节并设置 PDF 样式", () => {
+    // The export loads html2canvas + jspdf from CDN (not available in jsdom).
+    // We verify the synchronous side effects: chapters expand, CSS class is applied,
+    // document title is updated.
     const report = buildReport();
     render(<ReportDetailPage vm={normalizeSalesReport(report, { preset: "电商" })} onResearch={vi.fn()} onHistory={vi.fn()} />);
 
     const chapterEl = document.getElementById("profile") as HTMLDetailsElement;
-    // jsdom may default details to open; close it to match real browser behavior.
     chapterEl.open = false;
 
     fireEvent.click(screen.getAllByRole("button", { name: "导出报告" }).at(-1)!);
 
-    // Chapters are expanded for print.
+    // Chapters are expanded.
     expect(chapterEl.open).toBe(true);
-    // PDF print class is applied.
+    // PDF class is applied for consistent rendering.
     expect(document.documentElement.classList.contains("si-pdf-exporting")).toBe(true);
     // Title includes company name for the PDF file name.
     expect(document.title).toContain("目标公司-销售调研报告");

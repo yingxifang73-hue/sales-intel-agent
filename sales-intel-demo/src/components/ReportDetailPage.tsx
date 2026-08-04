@@ -56,12 +56,14 @@ export function ReportDetailPage({
 
   const [exporting, setExporting] = useState(false);
 
-  const exportPdf = useCallback(() => {
+  const exportPdf = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
 
-    const previousTitle = document.title;
     const closedChapters = [...document.querySelectorAll<HTMLDetailsElement>(".si-report-document details:not([open])")];
+    const previousTitle = document.title;
+    document.title = `${vm.companyName}-销售调研报告`;
+
     let cleanedUp = false;
     const cleanup = () => {
       if (cleanedUp) return;
@@ -72,55 +74,104 @@ export function ReportDetailPage({
       setExporting(false);
     };
 
-    // Expand all chapters and apply print-only CSS classes.
-    closedChapters.forEach((ch) => ch.open = true);
-    document.title = `${vm.companyName}-销售调研报告`;
-    document.documentElement.classList.add("si-pdf-exporting");
-    void document.body.offsetHeight;
+    try {
+      // Expand all chapters so the PDF includes full content.
+      closedChapters.forEach((ch) => ch.open = true);
+      document.documentElement.classList.add("si-pdf-exporting");
+      void document.body.offsetHeight;
 
-    // Offload printing to a hidden iframe so the main page isn't blocked.
-    // Chrome's "Save as PDF" destination produces a faithful PDF without any
-    // third-party dependency.
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.top = "0";
-    iframe.style.left = "0";
-    iframe.style.width = "100%";
-    iframe.style.height = "100%";
-    iframe.style.border = "none";
-    iframe.style.zIndex = "99999";
-    iframe.style.background = "#fff";
-    document.body.appendChild(iframe);
+      // Dynamic CDN load → no npm dependency, no Render OOM.
+      const [html2canvas, jsPDF] = await Promise.all([
+        loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
+        loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"),
+      ]);
 
-    const iframeDoc = iframe.contentDocument!;
-    const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"))
-      .map((el) => el.outerHTML)
-      .join("\n");
-    const reportHtml = document.querySelector(".si-report-document")!.outerHTML;
+      const reportEl = document.querySelector(".si-report-document") as HTMLElement;
+      if (!reportEl) throw new Error("未找到报告内容");
 
-    iframeDoc.write(`<!DOCTYPE html>
-<html class="si-pdf-exporting">
-<head><meta charset="utf-8"><title>${vm.companyName}-销售调研报告</title>${styles}</head>
-<body style="margin:0;background:#fff">${reportHtml}</body>
-</html>`);
-    iframeDoc.close();
+      const canvas = await html2canvas(reportEl, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
 
-    // Wait one frame for styles to apply, then print.
-    requestAnimationFrame(() => {
-      iframe.contentWindow!.focus();
-      iframe.contentWindow!.print();
-      // Clean up after print dialog closes.
-      iframe.contentWindow!.addEventListener("afterprint", () => {
-        iframe.remove();
-        cleanup();
-      }, { once: true });
-      // Safety fallback: if afterprint never fires, clean up after a delay.
-      setTimeout(() => {
-        if (document.body.contains(iframe)) iframe.remove();
-        cleanup();
-      }, 120_000);
-    });
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      const pageWidth = 210; // A4 mm
+      const pageHeight = 297;
+      const imgW = pageWidth - 20; // 10mm margins
+      const imgH = (canvas.height * imgW) / canvas.width;
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      let remaining = imgH;
+      let srcY = 0;
+      let page = 0;
+
+      while (remaining > 0) {
+        if (page > 0) pdf.addPage();
+        const sliceH = Math.min(remaining, pageHeight - 20);
+        pdf.addImage(imgData, "JPEG", 10, 10 + (page > 0 ? 0 : 0), imgW, imgH, undefined, "FAST");
+        // Clip to this page's portion
+        if (imgH > pageHeight - 20) {
+          // For multi-page we re-render slices — simple approach: add the full image
+          // and let jsPDF clip, or slice manually.
+        }
+        srcY += pageHeight - 20;
+        remaining -= pageHeight - 20;
+        page++;
+      }
+
+      // Simpler approach: one image split across pages
+      // We regenerate the PDF with proper slicing
+      const pdf2 = new jsPDF("p", "mm", "a4");
+      const usableH = pageHeight - 20;
+      let pos = 0;
+      let firstPage = true;
+
+      while (pos < imgH) {
+        if (!firstPage) pdf2.addPage();
+        firstPage = false;
+        const sliceCanvas = document.createElement("canvas");
+        const sliceCtx = sliceCanvas.getContext("2d")!;
+        const sliceH = Math.min(usableH, imgH - pos);
+        const srcH = (sliceH / imgH) * canvas.height;
+
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.round(srcH);
+        sliceCtx.drawImage(canvas, 0, Math.round((pos / imgH) * canvas.height), canvas.width, Math.round(srcH), 0, 0, canvas.width, Math.round(srcH));
+
+        pdf2.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 10, 10, imgW, (sliceCanvas.height * imgW) / canvas.width);
+        pos += sliceH;
+      }
+
+      pdf2.save(`${vm.companyName}-销售调研报告.pdf`);
+      cleanup();
+    } catch (err) {
+      console.error("PDF 导出失败", err);
+      cleanup();
+    }
   }, [exporting, vm.companyName]);
+
+  // Helper: dynamically load a script from CDN.
+  function loadScript(src: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        // Already loaded by a previous attempt — resolve the global.
+        if (src.includes("html2canvas")) return resolve((window as any).html2canvas);
+        if (src.includes("jspdf")) return resolve((window as any).jspdf.jsPDF);
+      }
+      const script = document.createElement("script");
+      script.src = src;
+      script.onload = () => {
+        if (src.includes("html2canvas")) resolve((window as any).html2canvas);
+        else if (src.includes("jspdf")) resolve((window as any).jspdf.jsPDF);
+        else resolve(null);
+      };
+      script.onerror = () => reject(new Error(`加载失败: ${src}`));
+      document.head.appendChild(script);
+    });
+  }
 
   const topOpportunity = vm.opportunity.opportunities[0];
   const contactChannels = vm.contacts.channels.filter((item) => (
@@ -163,7 +214,7 @@ export function ReportDetailPage({
             <div className="si-company-avatar">{vm.companyName.slice(0, 1)}</div>
             <div><span>公司名称</span><strong>{vm.companyName}</strong></div>
             <div><span>官网</span><a href={vm.targetUrl} target="_blank" rel="noopener noreferrer">{hostname(vm.targetUrl)}</a></div>
-            <div><span>行业</span><strong>{vm.preset ?? "通用"}</strong></div>
+            <div><span>行业</span><strong>{vm.preset && vm.preset !== "general" ? vm.preset : ""}</strong></div>
             <div className="si-product-meta"><span>我方产品</span><strong>{vm.sellerProductName}</strong></div>
             <div><span>更新时间</span><strong>{vm.collectedAt.slice(0, 16).replace("T", " ")}</strong></div>
           </div>
