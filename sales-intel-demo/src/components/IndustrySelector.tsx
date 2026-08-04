@@ -28,24 +28,24 @@ const EMPTY_LABEL = "请选择行业";
 export function IndustrySelector({
   preset,
   customIndustry,
+  industryLabel,
   onPresetChange,
   onCustomIndustryChange,
+  onIndustryLabelChange,
 }: {
   preset: Preset;
   customIndustry: string;
+  industryLabel: string;
   onPresetChange: (preset: Preset) => void;
   onCustomIndustryChange: (industry: string) => void;
+  onIndustryLabelChange: (label: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(Boolean(customIndustry));
-  const [chosenLabel, setChosenLabel] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Resolve display label: custom > explicitly chosen > preset lookup > ""
-  const selectedLabel =
-    customIndustry ||
-    chosenLabel ||
-    (preset === "general" && !customIndustry ? "" : INDUSTRIES.find((item) => item.preset === preset && !item.customIndustry)?.label ?? "");
+  // Display label: custom input > parent-tracked label > empty (shows placeholder)
+  const selectedLabel = customIndustry || industryLabel;
 
   // When the parent resets customIndustry (e.g. via 清空), exit custom mode.
   useEffect(() => {
@@ -64,7 +64,7 @@ export function IndustrySelector({
   const choose = (option: IndustryOption) => {
     onPresetChange(option.preset);
     onCustomIndustryChange(option.customIndustry ?? "");
-    setChosenLabel(option.customIndustry ? "" : option.label);
+    onIndustryLabelChange(option.customIndustry ? "" : option.label);
     setCustomMode(false);
     setOpen(false);
   };
