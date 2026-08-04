@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import type { ReportViewModel } from "@/lib/report-viewmodel";
 import { AppShell } from "./AppShell";
 import { ContactSection } from "./ContactSection";
@@ -27,6 +28,12 @@ function hostname(url: string): string {
   }
 }
 
+function confidenceLabel(value: string): string {
+  if (/高/.test(value)) return "高";
+  if (/低/.test(value)) return "低";
+  return "中";
+}
+
 export function ReportDetailPage({
   vm,
   onResearch,
@@ -47,7 +54,12 @@ export function ReportDetailPage({
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const exportPdf = () => {
+  const [exporting, setExporting] = useState(false);
+
+  const exportPdf = useCallback(() => {
+    if (exporting) return;
+    setExporting(true);
+
     const previousTitle = document.title;
     const closedChapters = [...document.querySelectorAll<HTMLDetailsElement>(".si-report-document details:not([open])")];
     let cleanedUp = false;
@@ -56,23 +68,59 @@ export function ReportDetailPage({
       cleanedUp = true;
       document.documentElement.classList.remove("si-pdf-exporting");
       document.title = previousTitle;
-      closedChapters.forEach((chapter) => chapter.open = false);
+      closedChapters.forEach((ch) => ch.open = false);
+      setExporting(false);
     };
 
-    closedChapters.forEach((chapter) => chapter.open = true);
+    // Expand all chapters and apply print-only CSS classes.
+    closedChapters.forEach((ch) => ch.open = true);
     document.title = `${vm.companyName}-销售调研报告`;
     document.documentElement.classList.add("si-pdf-exporting");
-    window.addEventListener("afterprint", cleanup, { once: true });
-
-    // Force one layout pass so expanded chapters and print-only typography are
-    // present before the browser captures its PDF preview.
     void document.body.offsetHeight;
-    try {
-      window.print();
-    } finally {
-      window.setTimeout(cleanup, 1_000);
-    }
-  };
+
+    // Offload printing to a hidden iframe so the main page isn't blocked.
+    // Chrome's "Save as PDF" destination produces a faithful PDF without any
+    // third-party dependency.
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.top = "0";
+    iframe.style.left = "0";
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "none";
+    iframe.style.zIndex = "99999";
+    iframe.style.background = "#fff";
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentDocument!;
+    const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"))
+      .map((el) => el.outerHTML)
+      .join("\n");
+    const reportHtml = document.querySelector(".si-report-document")!.outerHTML;
+
+    iframeDoc.write(`<!DOCTYPE html>
+<html class="si-pdf-exporting">
+<head><meta charset="utf-8"><title>${vm.companyName}-销售调研报告</title>${styles}</head>
+<body style="margin:0;background:#fff">${reportHtml}</body>
+</html>`);
+    iframeDoc.close();
+
+    // Wait one frame for styles to apply, then print.
+    requestAnimationFrame(() => {
+      iframe.contentWindow!.focus();
+      iframe.contentWindow!.print();
+      // Clean up after print dialog closes.
+      iframe.contentWindow!.addEventListener("afterprint", () => {
+        iframe.remove();
+        cleanup();
+      }, { once: true });
+      // Safety fallback: if afterprint never fires, clean up after a delay.
+      setTimeout(() => {
+        if (document.body.contains(iframe)) iframe.remove();
+        cleanup();
+      }, 120_000);
+    });
+  }, [exporting, vm.companyName]);
 
   const topOpportunity = vm.opportunity.opportunities[0];
   const contactChannels = vm.contacts.channels.filter((item) => (
@@ -103,9 +151,11 @@ export function ReportDetailPage({
 
         <article className="si-report-document">
           <header className="si-report-toolbar">
-            <h1>一体化销售调研报告</h1>
+            <h1>{vm.companyName}销售调研报告</h1>
             <div>
-              <button type="button" className="si-primary-action" onClick={exportPdf}>导出报告</button>
+              <button type="button" className="si-primary-action" onClick={exportPdf} disabled={exporting}>
+                {exporting ? "正在生成 PDF…" : "导出报告"}
+              </button>
             </div>
           </header>
 
@@ -119,6 +169,29 @@ export function ReportDetailPage({
           </div>
 
           <section id="verdict" className="si-report-section si-verdict-section">
+            {vm.reportStatus === "未达标" && (
+              <div className="si-below-standard-banner">
+                <div className="si-below-standard-banner-icon">!</div>
+                <div className="si-below-standard-banner-body">
+                  <h2>该客户与你方产品的公开信息匹配度较低</h2>
+                  <p>
+                    基于当前公开可获取的信息，系统未找到能直接支撑你方产品匹配的明确机会。
+                    这不代表客户无法合作——可能只是公开渠道缺少技术栈、采购需求等关键信息。
+                    下方已汇总所有已采集的公司背景，你可据此准备首次联系，通过沟通了解客户真实需求。
+                  </p>
+                  {vm.evidence.dataRisks.length > 0 && (
+                    <details className="si-below-standard-details">
+                      <summary>查看完整性说明（{vm.evidence.dataRisks.length} 项）</summary>
+                      <ul>
+                        {vm.evidence.dataRisks.slice(0, 12).map((risk, i) => (
+                          <li key={i}>{risk}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              </div>
+            )}
             <p className="si-section-number">1</p>
             <h2>是否值得联系</h2>
             <div className="si-verdict-lead">
@@ -126,6 +199,12 @@ export function ReportDetailPage({
                 <h3>{vm.verdict.contactSuggestion.value || "当前信息不足，暂无法形成联系建议"}</h3>
                 <ExpandableText text={vm.verdict.recommendationReason.value} maxLength={320} />
               </div>
+            </div>
+
+            <div className="si-metric-strip">
+              <div><span>联系建议</span><strong>{vm.verdict.suggestedGrade === "D" ? "暂缓联系" : "建议联系"}</strong></div>
+              <div><span>产品匹配</span><strong>{confidenceLabel(vm.opportunity.overallConfidence.value)}</strong></div>
+              <div><span>机会置信度</span><strong>{confidenceLabel(topOpportunity?.confidence.value ?? vm.opportunity.overallConfidence.value)}</strong></div>
             </div>
 
             <h3 className="si-subheading">为什么值得联系</h3>
