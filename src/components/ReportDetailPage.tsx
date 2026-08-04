@@ -163,7 +163,7 @@ export function ReportDetailPage({
             <div className="si-company-avatar">{vm.companyName.slice(0, 1)}</div>
             <div><span>公司名称</span><strong>{vm.companyName}</strong></div>
             <div><span>官网</span><a href={vm.targetUrl} target="_blank" rel="noopener noreferrer">{hostname(vm.targetUrl)}</a></div>
-            <div><span>行业</span><strong>{vm.preset ?? "通用"}</strong></div>
+            <div><span>行业</span><strong>{vm.preset && vm.preset !== "general" ? vm.preset : ""}</strong></div>
             <div className="si-product-meta"><span>我方产品</span><strong>{vm.sellerProductName}</strong></div>
             <div><span>更新时间</span><strong>{vm.collectedAt.slice(0, 16).replace("T", " ")}</strong></div>
           </div>
