@@ -19,7 +19,16 @@
       "PowerShell(Start-Process \"msedge\" \"https://github.com/yingxifang73-hue/sales-intel-agent/actions\")",
       "Bash(echo \"EXIT:$?\")",
       "Bash(pnpm remove *)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(cd \"d:/销售Agent/sales-intel-demo\" && ls \"C:\\\\temp\\\\check.txt\" \"C:\\\\temp\\\\committed.tsx\" 2>/dev/null && echo \"files exist\" || echo \"no temp files\")",
+      "Read(//c/temp/**)",
+      "Bash(xargs -0 -I{} sh -c 'test -f \"{}\" || git rm --cached \"{}\"')",
+      "Bash(xxd)",
+      "Bash(cd \"d:/销售Agent/sales-intel-demo\" && git ls-files > /tmp/idx.txt && wc -l /tmp/idx.txt && tail -5 /tmp/idx.txt)",
+      "PowerShell(cd \"d:\\\\销售Agent\\\\sales-intel-demo\"; \\(Get-Item \"src\\\\components\\\\IndustrySelector.tsx\"\\).LastWriteTime = Get-Date; \\(Get-Item \"src\\\\components\\\\ReportDetailPage.tsx\"\\).LastWriteTime = Get-Date; \\(Get-Item \"src\\\\app\\\\page.tsx\"\\).LastWriteTime = Get-Date)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }
