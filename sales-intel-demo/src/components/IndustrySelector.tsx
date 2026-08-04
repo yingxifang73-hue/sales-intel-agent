@@ -38,8 +38,14 @@ export function IndustrySelector({
 }) {
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(Boolean(customIndustry));
+  const [chosenLabel, setChosenLabel] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
-  const selectedLabel = customIndustry || (preset === "general" && !customIndustry ? "" : INDUSTRIES.find((item) => item.preset === preset)?.label ?? "");
+
+  // Resolve display label: custom > explicitly chosen > preset lookup > ""
+  const selectedLabel =
+    customIndustry ||
+    chosenLabel ||
+    (preset === "general" && !customIndustry ? "" : INDUSTRIES.find((item) => item.preset === preset && !item.customIndustry)?.label ?? "");
 
   // When the parent resets customIndustry (e.g. via 清空), exit custom mode.
   useEffect(() => {
@@ -58,6 +64,7 @@ export function IndustrySelector({
   const choose = (option: IndustryOption) => {
     onPresetChange(option.preset);
     onCustomIndustryChange(option.customIndustry ?? "");
+    setChosenLabel(option.customIndustry ? "" : option.label);
     setCustomMode(false);
     setOpen(false);
   };
