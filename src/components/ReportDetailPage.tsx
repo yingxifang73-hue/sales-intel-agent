@@ -28,12 +28,6 @@ function hostname(url: string): string {
   }
 }
 
-function confidenceLabel(value: string): string {
-  if (/高/.test(value)) return "高";
-  if (/低/.test(value)) return "低";
-  return "中";
-}
-
 export function ReportDetailPage({
   vm,
   onResearch,
@@ -163,7 +157,7 @@ export function ReportDetailPage({
             <div className="si-company-avatar">{vm.companyName.slice(0, 1)}</div>
             <div><span>公司名称</span><strong>{vm.companyName}</strong></div>
             <div><span>官网</span><a href={vm.targetUrl} target="_blank" rel="noopener noreferrer">{hostname(vm.targetUrl)}</a></div>
-            <div><span>行业</span><strong>{vm.preset && vm.preset !== "general" ? vm.preset : ""}</strong></div>
+            <div><span>行业</span><strong>{vm.preset ?? "通用"}</strong></div>
             <div className="si-product-meta"><span>我方产品</span><strong>{vm.sellerProductName}</strong></div>
             <div><span>更新时间</span><strong>{vm.collectedAt.slice(0, 16).replace("T", " ")}</strong></div>
           </div>
@@ -199,12 +193,6 @@ export function ReportDetailPage({
                 <h3>{vm.verdict.contactSuggestion.value || "当前信息不足，暂无法形成联系建议"}</h3>
                 <ExpandableText text={vm.verdict.recommendationReason.value} maxLength={320} />
               </div>
-            </div>
-
-            <div className="si-metric-strip">
-              <div><span>联系建议</span><strong>{vm.verdict.suggestedGrade === "D" ? "暂缓联系" : "建议联系"}</strong></div>
-              <div><span>产品匹配</span><strong>{confidenceLabel(vm.opportunity.overallConfidence.value)}</strong></div>
-              <div><span>机会置信度</span><strong>{confidenceLabel(topOpportunity?.confidence.value ?? vm.opportunity.overallConfidence.value)}</strong></div>
             </div>
 
             <h3 className="si-subheading">为什么值得联系</h3>
