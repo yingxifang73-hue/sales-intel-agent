@@ -28,6 +28,12 @@ function hostname(url: string): string {
   }
 }
 
+function confidenceLabel(value: string): string {
+  if (/高/.test(value)) return "高";
+  if (/低/.test(value)) return "低";
+  return "中";
+}
+
 export function ReportDetailPage({
   vm,
   onResearch,
@@ -50,71 +56,111 @@ export function ReportDetailPage({
 
   const [exporting, setExporting] = useState(false);
 
-  const exportPdf = useCallback(() => {
+  const exportPdf = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
 
-    const previousTitle = document.title;
     const closedChapters = [...document.querySelectorAll<HTMLDetailsElement>(".si-report-document details:not([open])")];
-    let cleanedUp = false;
-    const cleanup = () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      document.documentElement.classList.remove("si-pdf-exporting");
-      document.title = previousTitle;
+
+    try {
+      // Expand all chapters so the PDF includes full content.
+      closedChapters.forEach((ch) => ch.open = true);
+
+      // Dynamic CDN load → no npm dependency, no Render OOM.
+      // unpkg serves the exact npm package; cdnjs sometimes lags behind.
+      const [html2canvas, jsPDF] = await Promise.all([
+        loadScript("https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js", () => (window as any).html2canvas),
+        loadScript("https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js", () => {
+          // jsPDF UMD exposes `window.jspdf` with `{ jsPDF }` inside.
+          const mod = (window as any).jspdf;
+          return mod?.jsPDF ?? mod;
+        }),
+      ]);
+
+      const reportEl = document.querySelector(".si-report-document") as HTMLElement;
+      if (!reportEl) throw new Error("未找到报告内容");
+
+      // Clone the report off-screen so the screenshot doesn't disturb the live page.
+      const clone = reportEl.cloneNode(true) as HTMLElement;
+      clone.style.position = "fixed";
+      clone.style.left = "-9999px";
+      clone.style.top = "0";
+      clone.style.width = `${reportEl.offsetWidth}px`;
+      clone.style.zIndex = "-1";
+      clone.style.background = "#fff";
+      document.body.appendChild(clone);
+
+      // Expand chapters in the clone too.
+      clone.querySelectorAll("details:not([open])").forEach((d) => (d as HTMLDetailsElement).open = true);
+      // Remove toolbar buttons from the clone.
+      clone.querySelector(".si-report-toolbar > div")?.remove();
+      clone.querySelectorAll("button, .si-row-action").forEach((el: Element) => el.remove());
+
+      const canvas = await html2canvas(clone, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+
+      // Clean up the off-screen clone immediately.
+      clone.remove();
+
+      const pageWidth = 210; // A4 mm
+      const pageHeight = 297;
+      const imgW = pageWidth - 20; // 10mm margins
+      const imgH = (canvas.height * imgW) / canvas.width;
+
+      // Slice the full canvas into A4-page chunks.
+      const pdf = new jsPDF("p", "mm", "a4");
+      const usableH = pageHeight - 20;
+      let pos = 0;
+      let firstPage = true;
+
+      while (pos < imgH) {
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        const sliceH = Math.min(usableH, imgH - pos);
+        const srcH = (sliceH / imgH) * canvas.height;
+
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.round(srcH);
+        const sliceCtx = sliceCanvas.getContext("2d")!;
+        sliceCtx.drawImage(
+          canvas,
+          0, Math.round((pos / imgH) * canvas.height),
+          canvas.width, Math.round(srcH),
+          0, 0,
+          canvas.width, Math.round(srcH),
+        );
+
+        const sliceHmm = (sliceCanvas.height * imgW) / canvas.width;
+        pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 10, 10, imgW, sliceHmm);
+        pos += sliceH;
+      }
+
+      pdf.save(`${vm.companyName}-销售调研报告.pdf`);
+    } catch (err) {
+      console.error("PDF 导出失败", err);
+    } finally {
       closedChapters.forEach((ch) => ch.open = false);
       setExporting(false);
-    };
-
-    // Expand all chapters and apply print-only CSS classes.
-    closedChapters.forEach((ch) => ch.open = true);
-    document.title = `${vm.companyName}-销售调研报告`;
-    document.documentElement.classList.add("si-pdf-exporting");
-    void document.body.offsetHeight;
-
-    // Offload printing to a hidden iframe so the main page isn't blocked.
-    // Chrome's "Save as PDF" destination produces a faithful PDF without any
-    // third-party dependency.
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.top = "0";
-    iframe.style.left = "0";
-    iframe.style.width = "100%";
-    iframe.style.height = "100%";
-    iframe.style.border = "none";
-    iframe.style.zIndex = "99999";
-    iframe.style.background = "#fff";
-    document.body.appendChild(iframe);
-
-    const iframeDoc = iframe.contentDocument!;
-    const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"))
-      .map((el) => el.outerHTML)
-      .join("\n");
-    const reportHtml = document.querySelector(".si-report-document")!.outerHTML;
-
-    iframeDoc.write(`<!DOCTYPE html>
-<html class="si-pdf-exporting">
-<head><meta charset="utf-8"><title>${vm.companyName}-销售调研报告</title>${styles}</head>
-<body style="margin:0;background:#fff">${reportHtml}</body>
-</html>`);
-    iframeDoc.close();
-
-    // Wait one frame for styles to apply, then print.
-    requestAnimationFrame(() => {
-      iframe.contentWindow!.focus();
-      iframe.contentWindow!.print();
-      // Clean up after print dialog closes.
-      iframe.contentWindow!.addEventListener("afterprint", () => {
-        iframe.remove();
-        cleanup();
-      }, { once: true });
-      // Safety fallback: if afterprint never fires, clean up after a delay.
-      setTimeout(() => {
-        if (document.body.contains(iframe)) iframe.remove();
-        cleanup();
-      }, 120_000);
-    });
+    }
   }, [exporting, vm.companyName]);
+
+  // Helper: dynamically load a script from CDN.
+  function loadScript(src: string, resolveGlobal: () => any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) return resolve(resolveGlobal());
+      const script = document.createElement("script");
+      script.src = src;
+      script.onload = () => resolve(resolveGlobal());
+      script.onerror = () => reject(new Error(`加载失败: ${src}`));
+      document.head.appendChild(script);
+    });
+  }
 
   const topOpportunity = vm.opportunity.opportunities[0];
   const contactChannels = vm.contacts.channels.filter((item) => (
@@ -157,7 +203,7 @@ export function ReportDetailPage({
             <div className="si-company-avatar">{vm.companyName.slice(0, 1)}</div>
             <div><span>公司名称</span><strong>{vm.companyName}</strong></div>
             <div><span>官网</span><a href={vm.targetUrl} target="_blank" rel="noopener noreferrer">{hostname(vm.targetUrl)}</a></div>
-            <div><span>行业</span><strong>{vm.preset ?? "通用"}</strong></div>
+            <div><span>行业</span><strong>{vm.preset && vm.preset !== "general" ? vm.preset : ""}</strong></div>
             <div className="si-product-meta"><span>我方产品</span><strong>{vm.sellerProductName}</strong></div>
             <div><span>更新时间</span><strong>{vm.collectedAt.slice(0, 16).replace("T", " ")}</strong></div>
           </div>
@@ -193,6 +239,12 @@ export function ReportDetailPage({
                 <h3>{vm.verdict.contactSuggestion.value || "当前信息不足，暂无法形成联系建议"}</h3>
                 <ExpandableText text={vm.verdict.recommendationReason.value} maxLength={320} />
               </div>
+            </div>
+
+            <div className="si-metric-strip">
+              <div><span>联系建议</span><strong>{vm.verdict.suggestedGrade === "D" ? "暂缓联系" : "建议联系"}</strong></div>
+              <div><span>产品匹配</span><strong>{confidenceLabel(vm.opportunity.overallConfidence.value)}</strong></div>
+              <div><span>机会置信度</span><strong>{confidenceLabel(topOpportunity?.confidence.value ?? vm.opportunity.overallConfidence.value)}</strong></div>
             </div>
 
             <h3 className="si-subheading">为什么值得联系</h3>
