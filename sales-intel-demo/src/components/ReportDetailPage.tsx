@@ -67,9 +67,14 @@ export function ReportDetailPage({
       closedChapters.forEach((ch) => ch.open = true);
 
       // Dynamic CDN load → no npm dependency, no Render OOM.
+      // unpkg serves the exact npm package; cdnjs sometimes lags behind.
       const [html2canvas, jsPDF] = await Promise.all([
-        loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
-        loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"),
+        loadScript("https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js", () => (window as any).html2canvas),
+        loadScript("https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js", () => {
+          // jsPDF UMD exposes `window.jspdf` with `{ jsPDF }` inside.
+          const mod = (window as any).jspdf;
+          return mod?.jsPDF ?? mod;
+        }),
       ]);
 
       const reportEl = document.querySelector(".si-report-document") as HTMLElement;
@@ -82,11 +87,11 @@ export function ReportDetailPage({
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
-        onclone(clonedDoc) {
+        onclone(clonedDoc: Document) {
           // Remove toolbar buttons from the clone only.
           clonedDoc.querySelector(".si-report-toolbar > div")?.remove();
           clonedDoc.querySelectorAll(".si-report-toolbar button, .si-row-action, .si-signal-row button")
-            .forEach((el) => el.remove());
+            .forEach((el: Element) => el.remove());
         },
       });
 
@@ -134,21 +139,13 @@ export function ReportDetailPage({
   }, [exporting, vm.companyName]);
 
   // Helper: dynamically load a script from CDN.
-  function loadScript(src: string): Promise<any> {
+  function loadScript(src: string, resolveGlobal: () => any): Promise<any> {
     return new Promise((resolve, reject) => {
       const existing = document.querySelector(`script[src="${src}"]`);
-      if (existing) {
-        // Already loaded by a previous attempt — resolve the global.
-        if (src.includes("html2canvas")) return resolve((window as any).html2canvas);
-        if (src.includes("jspdf")) return resolve((window as any).jspdf.jsPDF);
-      }
+      if (existing) return resolve(resolveGlobal());
       const script = document.createElement("script");
       script.src = src;
-      script.onload = () => {
-        if (src.includes("html2canvas")) resolve((window as any).html2canvas);
-        else if (src.includes("jspdf")) resolve((window as any).jspdf.jsPDF);
-        else resolve(null);
-      };
+      script.onload = () => resolve(resolveGlobal());
       script.onerror = () => reject(new Error(`加载失败: ${src}`));
       document.head.appendChild(script);
     });
