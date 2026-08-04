@@ -44,6 +44,11 @@ export function IndustrySelector({
   const rootRef = useRef<HTMLDivElement>(null);
   const selectedLabel = customIndustry || fallbackLabel(preset);
 
+  // When the parent resets customIndustry (e.g. via 清空), exit custom mode.
+  useEffect(() => {
+    if (!customIndustry) setCustomMode(false);
+  }, [customIndustry]);
+
   useEffect(() => {
     const close = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
