@@ -80,20 +80,31 @@ export function ReportDetailPage({
       const reportEl = document.querySelector(".si-report-document") as HTMLElement;
       if (!reportEl) throw new Error("未找到报告内容");
 
-      // Use onclone to clean up the cloned document for PDF, without touching
-      // the visible page. Hide sidebar/TOC/buttons only in the clone.
-      const canvas = await html2canvas(reportEl, {
+      // Clone the report off-screen so the screenshot doesn't disturb the live page.
+      const clone = reportEl.cloneNode(true) as HTMLElement;
+      clone.style.position = "fixed";
+      clone.style.left = "-9999px";
+      clone.style.top = "0";
+      clone.style.width = `${reportEl.offsetWidth}px`;
+      clone.style.zIndex = "-1";
+      clone.style.background = "#fff";
+      document.body.appendChild(clone);
+
+      // Expand chapters in the clone too.
+      clone.querySelectorAll("details:not([open])").forEach((d) => (d as HTMLDetailsElement).open = true);
+      // Remove toolbar buttons from the clone.
+      clone.querySelector(".si-report-toolbar > div")?.remove();
+      clone.querySelectorAll("button, .si-row-action").forEach((el: Element) => el.remove());
+
+      const canvas = await html2canvas(clone, {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
-        onclone(clonedDoc: Document) {
-          // Remove toolbar buttons from the clone only.
-          clonedDoc.querySelector(".si-report-toolbar > div")?.remove();
-          clonedDoc.querySelectorAll(".si-report-toolbar button, .si-row-action, .si-signal-row button")
-            .forEach((el: Element) => el.remove());
-        },
       });
+
+      // Clean up the off-screen clone immediately.
+      clone.remove();
 
       const pageWidth = 210; // A4 mm
       const pageHeight = 297;
