@@ -48,14 +48,14 @@ type PipelineEventLocal =
 
 type TrialDisplay = { code: string; remainingRuns: number; completedRuns: number; maxRuns: number };
 const TRIAL_TOKEN_STORAGE_KEY = "sales-intel-trial-token";
-const ACTIVE_RESEARCH_STORAGE_KEY = "sales-intel-active-research-v3";
+const ACTIVE_RESEARCH_STORAGE_KEY = "sales-intel-active-research-v2";
 
 type ActiveResearchMeta = {
   id: string;
   targetUrl: string;
   presetLabel: string;
   productName: string;
-  ts?: number;
+  ts: number;
 };
 
 type ResearchJobResponse = {
@@ -174,16 +174,12 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      // 强制清除所有旧版本的活跃调研记录，防止无限转圈
       try {
-        const raw = localStorage.getItem(ACTIVE_RESEARCH_STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw) as ActiveResearchMeta;
-        if (parsed?.id && parsed.targetUrl && parsed.productName) {
-          setActiveResearch(parsed);
-          setIsRunning(true);
-        }
-      } catch {
+        localStorage.removeItem("sales-intel-active-research-v1");
         localStorage.removeItem(ACTIVE_RESEARCH_STORAGE_KEY);
+      } catch {
+        // ignore
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -194,29 +190,6 @@ export default function Home() {
     let cancelled = false;
     let timer: number | undefined;
     const poll = async () => {
-      // Tasks saved before the GitHub Actions executor did not have a client
-      // timestamp. They cannot be resumed safely, so end them explicitly
-      // instead of leaving the user on a permanent loading screen.
-      if (!activeResearch.ts) {
-        try {
-          const response = await fetch(`/api/research/${activeResearch.id}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${trialToken}` },
-            cache: "no-store",
-          });
-          const body = await response.json() as { message?: string; error?: string };
-          if (!cancelled) {
-            setError(body.message ?? body.error ?? "旧版未执行任务已结束，请重新发起调研。");
-            localStorage.removeItem(ACTIVE_RESEARCH_STORAGE_KEY);
-            setActiveResearch(null);
-            setPipelineState({ events: [] });
-            setIsRunning(false);
-          }
-        } catch (error) {
-          if (!cancelled) setError(error instanceof Error ? error.message : "无法结束旧版调研任务。");
-        }
-        return;
-      }
       try {
         const response = await fetch(`/api/research/${activeResearch.id}`, {
           headers: { Authorization: `Bearer ${trialToken}` },
@@ -232,7 +205,7 @@ export default function Home() {
             targetUrl: body.input.targetUrl,
             presetLabel: body.input.customIndustry || presets.find(([key]) => key === body.input?.preset)?.[1] || "通用",
             productName: body.input.sellerProfile.productName,
-            ts: activeResearch.ts,
+            ts: Date.now(),
           };
           setActiveResearch((previous) => (
             previous?.id === meta.id
@@ -463,6 +436,7 @@ export default function Home() {
                     <button type="button" className="si-secondary-action" onClick={() => {
                       setTargetUrl("");
                       setPreset("general");
+                      setCustomIndustry("");
                       setProfile({ productName: "", valueProposition: "", targetCustomer: "", customerProblems: [""], proofPoints: [""], callToAction: DEFAULT_CALL_TO_ACTION });
                     }}>清空</button>
                     <button type="submit" className="si-primary-action">开始调研</button>
@@ -558,6 +532,9 @@ function HistoryPage({
             <tr>
               <th>客户</th>
               <th>我方产品</th>
+              <th>建议等级</th>
+              <th>当前状态</th>
+              <th>数据质量</th>
               <th>生成时间</th>
               <th></th>
             </tr>
@@ -565,10 +542,22 @@ function HistoryPage({
           <tbody>
             {history.map((h) => {
               const hn = getHostname(h.targetUrl);
+              const grade = deriveSimpleGrade(h.report);
               return (
                 <tr key={h.id} onClick={() => onOpen(h.id)}>
                   <td><strong>{hn}</strong></td>
                   <td>{h.productName}</td>
+                  <td>
+                    <span
+                      className={`confidence-tag confidence-${grade === "A" ? "高" : grade === "B" ? "中" : "低"}`}
+                    >
+                      {grade} 级
+                    </span>
+                  </td>
+                  <td>{h.report.reportMeta.status ?? "—"}</td>
+                  <td className="si-history-quality">
+                    {h.metrics ? `${h.metrics.sourceCount} 来源` : "—"}
+                  </td>
                   <td className="si-history-date">
                     {h.createdAt.slice(0, 16).replace("T", " ")}
                   </td>
@@ -596,4 +585,17 @@ function HistoryPage({
 
 function getHostname(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
+
+function deriveSimpleGrade(report: SalesReport): string {
+  const hasSignals = report.salesVerdict?.keyCustomerSignals?.length > 0;
+  const hasOpps = report.opportunityAnalysis?.opportunities?.length > 0;
+  const ciOk = report.customerIntelligence?.companyOverview?.status !== "insufficient";
+  const qualityPassed = report.reportMeta.status === "达标" && report.qualityAudit?.minimumStandardMet !== false;
+  const overlappingSolution = report.opportunityAnalysis?.relationshipType === "competitive"
+    || report.opportunityAnalysis?.relationshipType === "self_built";
+  if (overlappingSolution && !hasOpps) return "D";
+  if (qualityPassed && hasSignals && hasOpps && ciOk) return "B";
+  if (hasSignals || ciOk) return "C";
+  return "D";
 }
