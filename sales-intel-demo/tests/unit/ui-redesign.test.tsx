@@ -216,23 +216,26 @@ describe("精简 UI", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
-  it("导出报告按钮触发 PDF 生成（使用 A4 排版与中文文件名）", async () => {
-    // Dynamically imports html2canvas + jspdf which aren't available in jsdom;
-    // the catch block falls back to window.print, so we verify the print
-    // fallback is wired correctly.
-    const print = vi.spyOn(window, "print").mockImplementation(() => {
-      expect(document.documentElement.classList.contains("si-pdf-exporting")).toBe(true);
-      expect(document.title).toContain("销售调研报告");
-    });
+  it("导出报告按钮应用 PDF 排版样式并使用中文文件名", () => {
+    // The export creates a hidden iframe and calls print() on it, which jsdom
+    // does not support. We verify the document-level side effects: chapters
+    // are expanded, the print CSS class is applied, and the document title is
+    // updated for the PDF file name.
     const report = buildReport();
     render(<ReportDetailPage vm={normalizeSalesReport(report, { preset: "电商" })} onResearch={vi.fn()} onHistory={vi.fn()} />);
 
+    const chapterEl = document.getElementById("profile") as HTMLDetailsElement;
+    // jsdom may default details to open; close it to match real browser behavior.
+    chapterEl.open = false;
+
     fireEvent.click(screen.getAllByRole("button", { name: "导出报告" }).at(-1)!);
 
-    // The dynamic import fails in jsdom so the fallback calls window.print.
-    // Flush the microtask queue so the async catch block runs.
-    await vi.waitFor(() => expect(print).toHaveBeenCalledOnce(), { timeout: 2000 });
-    print.mockRestore();
+    // Chapters are expanded for print.
+    expect(chapterEl.open).toBe(true);
+    // PDF print class is applied.
+    expect(document.documentElement.classList.contains("si-pdf-exporting")).toBe(true);
+    // Title includes company name for the PDF file name.
+    expect(document.title).toContain("目标公司-销售调研报告");
   });
 
   it("PDF 打印样式包含 A4、中文字体、颜色和分页规则", () => {

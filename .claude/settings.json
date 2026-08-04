@@ -17,7 +17,8 @@
       "WebFetch(domain:api.github.com)",
       "Bash(Start-Process \"msedge\" \"https://github.com/yingxifang73-hue/sales-intel-agent/actions\")",
       "PowerShell(Start-Process \"msedge\" \"https://github.com/yingxifang73-hue/sales-intel-agent/actions\")",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(pnpm remove *)"
     ]
   }
 }

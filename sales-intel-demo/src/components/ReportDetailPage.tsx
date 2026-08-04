@@ -56,9 +56,10 @@ export function ReportDetailPage({
 
   const [exporting, setExporting] = useState(false);
 
-  const exportPdf = useCallback(async () => {
+  const exportPdf = useCallback(() => {
     if (exporting) return;
     setExporting(true);
+
     const previousTitle = document.title;
     const closedChapters = [...document.querySelectorAll<HTMLDetailsElement>(".si-report-document details:not([open])")];
     let cleanedUp = false;
@@ -67,72 +68,58 @@ export function ReportDetailPage({
       cleanedUp = true;
       document.documentElement.classList.remove("si-pdf-exporting");
       document.title = previousTitle;
-      closedChapters.forEach((chapter) => chapter.open = false);
+      closedChapters.forEach((ch) => ch.open = false);
+      setExporting(false);
     };
 
-    try {
-      // Expand all chapters so the PDF includes every section.
-      closedChapters.forEach((chapter) => chapter.open = true);
-      document.title = `${vm.companyName}-销售调研报告`;
-      document.documentElement.classList.add("si-pdf-exporting");
-      void document.body.offsetHeight;
+    // Expand all chapters and apply print-only CSS classes.
+    closedChapters.forEach((ch) => ch.open = true);
+    document.title = `${vm.companyName}-销售调研报告`;
+    document.documentElement.classList.add("si-pdf-exporting");
+    void document.body.offsetHeight;
 
-      const [{ default: html2canvas }, { default: JsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-      const article = document.querySelector<HTMLElement>(".si-report-document");
-      if (!article) throw new Error("报告内容不存在");
+    // Offload printing to a hidden iframe so the main page isn't blocked.
+    // Chrome's "Save as PDF" destination produces a faithful PDF without any
+    // third-party dependency.
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.top = "0";
+    iframe.style.left = "0";
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "none";
+    iframe.style.zIndex = "99999";
+    iframe.style.background = "#fff";
+    document.body.appendChild(iframe);
 
-      const canvas = await html2canvas(article, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-      });
+    const iframeDoc = iframe.contentDocument!;
+    const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"))
+      .map((el) => el.outerHTML)
+      .join("\n");
+    const reportHtml = document.querySelector(".si-report-document")!.outerHTML;
 
-      const pageWidth = 210; // A4 mm
-      const pageHeight = 297;
-      const margin = 12;
-      const contentWidth = pageWidth - margin * 2;
-      const contentHeight = pageHeight - margin * 2;
+    iframeDoc.write(`<!DOCTYPE html>
+<html class="si-pdf-exporting">
+<head><meta charset="utf-8"><title>${vm.companyName}-销售调研报告</title>${styles}</head>
+<body style="margin:0;background:#fff">${reportHtml}</body>
+</html>`);
+    iframeDoc.close();
 
-      const imgWidth = contentWidth;
-      const imgHeight = (canvas.height * contentWidth) / canvas.width;
-
-      const pdf = new JsPDF({ orientation: imgHeight > imgWidth ? "portrait" : "landscape", unit: "mm", format: "a4" });
-      let remaining = imgHeight;
-      let sourceY = 0;
-
-      while (remaining > 0) {
-        const sliceHeight = Math.min(remaining, contentHeight);
-        const destY = remaining === imgHeight ? margin : margin;
-        // Create a temporary canvas slice so tall images don't break on Safari.
-        const sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = Math.round((sliceHeight / imgHeight) * canvas.height);
-        const ctx = sliceCanvas.getContext("2d")!;
-        ctx.drawImage(
-          canvas,
-          0, sourceY, canvas.width, sliceCanvas.height,
-          0, 0, canvas.width, sliceCanvas.height,
-        );
-        pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, destY, imgWidth, sliceHeight);
-
-        sourceY += sliceCanvas.height;
-        remaining -= sliceHeight;
-        if (remaining > 0) pdf.addPage();
-      }
-
-      pdf.save(`${vm.companyName}-销售调研报告.pdf`);
-    } catch (err) {
-      console.error("PDF export failed", err);
-      // Fallback to browser print on error.
-      window.print();
-    } finally {
-      cleanup();
-      setExporting(false);
-    }
+    // Wait one frame for styles to apply, then print.
+    requestAnimationFrame(() => {
+      iframe.contentWindow!.focus();
+      iframe.contentWindow!.print();
+      // Clean up after print dialog closes.
+      iframe.contentWindow!.addEventListener("afterprint", () => {
+        iframe.remove();
+        cleanup();
+      }, { once: true });
+      // Safety fallback: if afterprint never fires, clean up after a delay.
+      setTimeout(() => {
+        if (document.body.contains(iframe)) iframe.remove();
+        cleanup();
+      }, 120_000);
+    });
   }, [exporting, vm.companyName]);
 
   const topOpportunity = vm.opportunity.opportunities[0];
