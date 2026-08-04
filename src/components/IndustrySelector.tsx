@@ -6,7 +6,6 @@ import type { Preset } from "@/lib/types";
 type IndustryOption = { label: string; preset: Preset; customIndustry?: string };
 
 const INDUSTRIES: IndustryOption[] = [
-  { label: "通用", preset: "general" },
   { label: "电商", preset: "ecommerce" },
   { label: "零售与连锁", preset: "ecommerce", customIndustry: "零售与连锁" },
   { label: "消费品 / 品牌", preset: "ecommerce", customIndustry: "消费品与品牌" },
@@ -24,9 +23,7 @@ const INDUSTRIES: IndustryOption[] = [
   { label: "汽车与零部件", preset: "manufacturing", customIndustry: "汽车与零部件" },
 ];
 
-function fallbackLabel(preset: Preset): string {
-  return INDUSTRIES.find((item) => item.preset === preset)?.label ?? "通用";
-}
+const EMPTY_LABEL = "请选择行业";
 
 export function IndustrySelector({
   preset,
@@ -42,7 +39,12 @@ export function IndustrySelector({
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(Boolean(customIndustry));
   const rootRef = useRef<HTMLDivElement>(null);
-  const selectedLabel = customIndustry || fallbackLabel(preset);
+  const selectedLabel = customIndustry || (preset === "general" && !customIndustry ? "" : INDUSTRIES.find((item) => item.preset === preset)?.label ?? "");
+
+  // When the parent resets customIndustry (e.g. via 清空), exit custom mode.
+  useEffect(() => {
+    if (!customIndustry) setCustomMode(false);
+  }, [customIndustry]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -63,7 +65,7 @@ export function IndustrySelector({
   return (
     <div className="si-industry-selector" ref={rootRef}>
       <button className="si-industry-trigger" type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <span>{selectedLabel}</span><i aria-hidden="true" />
+        <span className={selectedLabel ? "" : "si-industry-placeholder"}>{selectedLabel || EMPTY_LABEL}</span><i aria-hidden="true" />
       </button>
       {open && (
         <div className="si-industry-menu" role="listbox" aria-label="选择行业">
