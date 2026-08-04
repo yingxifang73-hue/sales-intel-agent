@@ -216,10 +216,9 @@ describe("精简 UI", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
-  it("导出报告按钮展开章节并设置 PDF 样式", () => {
-    // The export loads html2canvas + jspdf from CDN (not available in jsdom).
-    // We verify the synchronous side effects: chapters expand, CSS class is applied,
-    // document title is updated.
+  it("导出报告按钮展开章节用于截图", () => {
+    // CDN-loaded html2canvas + jspdf are unavailable in jsdom.
+    // Verify synchronous side effects only: chapters expand for the screenshot.
     const report = buildReport();
     render(<ReportDetailPage vm={normalizeSalesReport(report, { preset: "电商" })} onResearch={vi.fn()} onHistory={vi.fn()} />);
 
@@ -228,12 +227,8 @@ describe("精简 UI", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "导出报告" }).at(-1)!);
 
-    // Chapters are expanded.
+    // Chapters are expanded for the screenshot.
     expect(chapterEl.open).toBe(true);
-    // PDF class is applied for consistent rendering.
-    expect(document.documentElement.classList.contains("si-pdf-exporting")).toBe(true);
-    // Title includes company name for the PDF file name.
-    expect(document.title).toContain("目标公司-销售调研报告");
   });
 
   it("PDF 打印样式包含 A4、中文字体、颜色和分页规则", () => {

@@ -61,24 +61,10 @@ export function ReportDetailPage({
     setExporting(true);
 
     const closedChapters = [...document.querySelectorAll<HTMLDetailsElement>(".si-report-document details:not([open])")];
-    const previousTitle = document.title;
-    document.title = `${vm.companyName}-销售调研报告`;
-
-    let cleanedUp = false;
-    const cleanup = () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      document.documentElement.classList.remove("si-pdf-exporting");
-      document.title = previousTitle;
-      closedChapters.forEach((ch) => ch.open = false);
-      setExporting(false);
-    };
 
     try {
       // Expand all chapters so the PDF includes full content.
       closedChapters.forEach((ch) => ch.open = true);
-      document.documentElement.classList.add("si-pdf-exporting");
-      void document.body.offsetHeight;
 
       // Dynamic CDN load → no npm dependency, no Render OOM.
       const [html2canvas, jsPDF] = await Promise.all([
@@ -89,66 +75,61 @@ export function ReportDetailPage({
       const reportEl = document.querySelector(".si-report-document") as HTMLElement;
       if (!reportEl) throw new Error("未找到报告内容");
 
+      // Use onclone to clean up the cloned document for PDF, without touching
+      // the visible page. Hide sidebar/TOC/buttons only in the clone.
       const canvas = await html2canvas(reportEl, {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
+        onclone(clonedDoc) {
+          // Remove toolbar buttons from the clone only.
+          clonedDoc.querySelector(".si-report-toolbar > div")?.remove();
+          clonedDoc.querySelectorAll(".si-report-toolbar button, .si-row-action, .si-signal-row button")
+            .forEach((el) => el.remove());
+        },
       });
 
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
       const pageWidth = 210; // A4 mm
       const pageHeight = 297;
       const imgW = pageWidth - 20; // 10mm margins
       const imgH = (canvas.height * imgW) / canvas.width;
 
+      // Slice the full canvas into A4-page chunks.
       const pdf = new jsPDF("p", "mm", "a4");
-      let remaining = imgH;
-      let srcY = 0;
-      let page = 0;
-
-      while (remaining > 0) {
-        if (page > 0) pdf.addPage();
-        const sliceH = Math.min(remaining, pageHeight - 20);
-        pdf.addImage(imgData, "JPEG", 10, 10 + (page > 0 ? 0 : 0), imgW, imgH, undefined, "FAST");
-        // Clip to this page's portion
-        if (imgH > pageHeight - 20) {
-          // For multi-page we re-render slices — simple approach: add the full image
-          // and let jsPDF clip, or slice manually.
-        }
-        srcY += pageHeight - 20;
-        remaining -= pageHeight - 20;
-        page++;
-      }
-
-      // Simpler approach: one image split across pages
-      // We regenerate the PDF with proper slicing
-      const pdf2 = new jsPDF("p", "mm", "a4");
       const usableH = pageHeight - 20;
       let pos = 0;
       let firstPage = true;
 
       while (pos < imgH) {
-        if (!firstPage) pdf2.addPage();
+        if (!firstPage) pdf.addPage();
         firstPage = false;
-        const sliceCanvas = document.createElement("canvas");
-        const sliceCtx = sliceCanvas.getContext("2d")!;
         const sliceH = Math.min(usableH, imgH - pos);
         const srcH = (sliceH / imgH) * canvas.height;
 
+        const sliceCanvas = document.createElement("canvas");
         sliceCanvas.width = canvas.width;
         sliceCanvas.height = Math.round(srcH);
-        sliceCtx.drawImage(canvas, 0, Math.round((pos / imgH) * canvas.height), canvas.width, Math.round(srcH), 0, 0, canvas.width, Math.round(srcH));
+        const sliceCtx = sliceCanvas.getContext("2d")!;
+        sliceCtx.drawImage(
+          canvas,
+          0, Math.round((pos / imgH) * canvas.height),
+          canvas.width, Math.round(srcH),
+          0, 0,
+          canvas.width, Math.round(srcH),
+        );
 
-        pdf2.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 10, 10, imgW, (sliceCanvas.height * imgW) / canvas.width);
+        const sliceHmm = (sliceCanvas.height * imgW) / canvas.width;
+        pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 10, 10, imgW, sliceHmm);
         pos += sliceH;
       }
 
-      pdf2.save(`${vm.companyName}-销售调研报告.pdf`);
-      cleanup();
+      pdf.save(`${vm.companyName}-销售调研报告.pdf`);
     } catch (err) {
       console.error("PDF 导出失败", err);
-      cleanup();
+    } finally {
+      closedChapters.forEach((ch) => ch.open = false);
+      setExporting(false);
     }
   }, [exporting, vm.companyName]);
 
