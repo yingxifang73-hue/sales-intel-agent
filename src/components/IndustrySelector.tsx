@@ -25,6 +25,15 @@ const INDUSTRIES: IndustryOption[] = [
 
 const EMPTY_LABEL = "请选择行业";
 
+/** Find the first option matching both preset AND customIndustry (or lack thereof). */
+function findOption(preset: Preset, customIndustry: string): IndustryOption | undefined {
+  if (customIndustry) {
+    return INDUSTRIES.find((o) => o.customIndustry === customIndustry && o.preset === preset);
+  }
+  // For shared-preset industries, match the exact option that has NO customIndustry.
+  return INDUSTRIES.find((o) => o.preset === preset && !o.customIndustry);
+}
+
 export function IndustrySelector({
   preset,
   customIndustry,
@@ -38,13 +47,31 @@ export function IndustrySelector({
 }) {
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(Boolean(customIndustry));
+  const [chosenLabel, setChosenLabel] = useState(() => {
+    // Derive initial label from preset + customIndustry on first mount.
+    const option = findOption(preset, customIndustry);
+    return customIndustry || option?.label || "";
+  });
   const rootRef = useRef<HTMLDivElement>(null);
-  const selectedLabel = customIndustry || (preset === "general" && !customIndustry ? "" : INDUSTRIES.find((item) => item.preset === preset)?.label ?? "");
+
+  // Display label: custom > explicitly chosen > derived from option > ""
+  const selectedLabel = customIndustry || chosenLabel || "";
 
   // When the parent resets customIndustry (e.g. via 清空), exit custom mode.
   useEffect(() => {
-    if (!customIndustry) setCustomMode(false);
+    if (!customIndustry) {
+      setCustomMode(false);
+    }
   }, [customIndustry]);
+
+  // When preset or customIndustry changes externally (e.g. history restore),
+  // update the chosen label so it stays in sync.
+  useEffect(() => {
+    if (!customIndustry) {
+      const option = findOption(preset, "");
+      if (option) setChosenLabel(option.label);
+    }
+  }, [preset, customIndustry]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -58,6 +85,8 @@ export function IndustrySelector({
   const choose = (option: IndustryOption) => {
     onPresetChange(option.preset);
     onCustomIndustryChange(option.customIndustry ?? "");
+    // Remember the exact label the user picked.
+    setChosenLabel(option.customIndustry ? "" : option.label);
     setCustomMode(false);
     setOpen(false);
   };
