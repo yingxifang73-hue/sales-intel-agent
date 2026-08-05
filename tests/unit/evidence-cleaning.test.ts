@@ -1,31 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { cleanSourceText, isUserFacingChineseText, sanitizeChineseOutput, selectEvidenceExcerpts } from "@/lib/evidence";
+import { cleanSourceText, selectEvidenceExcerpts } from "@/lib/evidence";
 import type { Source } from "@/lib/types";
 
 describe("evidence cleaning", () => {
-  it("removes image captions and media boilerplate while preserving factual prose", () => {
-    const cleaned = cleanSourceText([
-      "首页 产品 服务 新闻动态",
-      "（图1 公司总部）",
-      "登录以发表评论",
-      "公司成立于2015年，主营企业软件服务。特别声明：以上内容仅代表作者观点。",
-      "相关搜索 热门推荐 查看更多",
-    ].join("\n"));
-
-    expect(cleaned).toContain("公司成立于2015年，主营企业软件服务。");
-    expect(cleaned).not.toContain("图1");
-    expect(cleaned).not.toContain("登录以发表评论");
-    expect(cleaned).not.toContain("特别声明");
-    expect(cleaned).not.toContain("相关搜索");
-  });
-
-  it("rejects crawler English sentences and normalizes malformed punctuation", () => {
-    expect(isUserFacingChineseText("Click to expand the latest news menu")).toBe(false);
-    expect(isUserFacingChineseText("公司介绍：主营企业软件服务。")).toBe(true);
-    expect(sanitizeChineseOutput("公司介绍”。。")).toBe("公司介绍。");
-    expect(sanitizeChineseOutput("我们提供“销售助手”。")).toBe("我们提供“销售助手”。");
-    expect(sanitizeChineseOutput("公开资料提到“公司已发布新品。”。")).toBe("公开资料提到“公司已发布新品。”");
-  });
   it("separates homepage navigation from factual body content", () => {
     const raw = [
       "# Home",

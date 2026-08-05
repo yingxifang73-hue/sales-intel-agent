@@ -129,7 +129,7 @@ describe("精简 UI", () => {
         onHistory={vi.fn()}
       />,
     );
-    expect(screen.getByText("一体化销售调研报告")).toBeInTheDocument();
+    expect(screen.getByText("目标公司销售调研报告")).toBeInTheDocument();
     expect(screen.getByText("是否值得联系")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "联系方式与地址" })).toBeInTheDocument();
     expect(screen.getAllByText(/暂未从公开信息中获取可靠电话或邮箱/)).toHaveLength(1);
@@ -216,18 +216,19 @@ describe("精简 UI", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
-  it("导出报告以 PDF 排版状态调用浏览器打印并使用中文文件名", () => {
-    const print = vi.spyOn(window, "print").mockImplementation(() => {
-      expect(document.documentElement.classList.contains("si-pdf-exporting")).toBe(true);
-      expect(document.title).toContain("销售调研报告");
-    });
+  it("导出报告按钮展开章节用于截图", () => {
+    // CDN-loaded html2canvas + jspdf are unavailable in jsdom.
+    // Verify synchronous side effects only: chapters expand for the screenshot.
     const report = buildReport();
     render(<ReportDetailPage vm={normalizeSalesReport(report, { preset: "电商" })} onResearch={vi.fn()} onHistory={vi.fn()} />);
 
+    const chapterEl = document.getElementById("profile") as HTMLDetailsElement;
+    chapterEl.open = false;
+
     fireEvent.click(screen.getAllByRole("button", { name: "导出报告" }).at(-1)!);
 
-    expect(print).toHaveBeenCalledOnce();
-    print.mockRestore();
+    // Chapters are expanded for the screenshot.
+    expect(chapterEl.open).toBe(true);
   });
 
   it("PDF 打印样式包含 A4、中文字体、颜色和分页规则", () => {

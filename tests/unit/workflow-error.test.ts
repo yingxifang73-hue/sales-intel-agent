@@ -76,6 +76,17 @@ describe("workflow error normalization", () => {
     )).toContain("未能形成完整报告");
   });
 
+  it("exposes the real missing fields in the report_quality branch instead of hiding them", () => {
+    const message = presentResearchFailure(
+      "本次调研尚未达到完整报告标准：模型阶段未完成：facts。",
+      "sales_verdict",
+    );
+    expect(message).toContain("销售结论");
+    expect(message).toContain("未能形成完整报告");
+    expect(message).toContain("模型阶段未完成：facts");
+    expect(message).toContain("自动释放本次调研次数");
+  });
+
   it("surfaces the real cause in the runtime fallback instead of a bare 未能完成", () => {
     const message = presentResearchFailure(
       "模型阶段未完成：facts",

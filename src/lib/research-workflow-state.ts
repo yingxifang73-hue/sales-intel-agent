@@ -34,12 +34,10 @@ export function isReportModuleComplete(report: SalesReport, stage: ReportModuleS
   return outcome === "success" || outcome === "partial" || outcome === "failed";
 }
 
-// Each source receives an independent structured extraction. This prevents one
-// incomplete multi-page model response from discarding facts for its siblings.
-// The workflow limits concurrency separately, so all selected sources are still
-// processed without creating an unbounded number of provider requests.
-export const SOURCE_FACT_BATCH_SIZE = 1;
-export const SOURCE_FACT_CONCURRENCY = 5;
+// Every selected source is still processed. Larger durable batches are run in
+// parallel by the workflow, reducing serial waiting without discarding source
+// coverage.
+export const SOURCE_FACT_BATCH_SIZE = 3;
 
 export function sourceFactBatchCount(sourceCount: number): number {
   return Math.ceil(Math.max(0, sourceCount) / SOURCE_FACT_BATCH_SIZE);

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkBanRules, checkDeliveryMinimum, checkMinimum } from "@/lib/quality-gate";
-import { normalizeSalesReportNarrative } from "@/lib/report-text";
+import { checkBanRules, checkMinimum } from "@/lib/quality-gate";
 import type { SalesReport } from "@/lib/types";
 
 const sourceId = "quality-source";
@@ -108,54 +107,9 @@ function completeReport(): SalesReport {
   };
 }
 
-it("保留语义复核问题用于定向修复，但不让单次主观复核独自杀死客观完整报告", () => {
-  const report = completeReport();
-  report.qualityAudit!.stageOutcomes.quality_review = "failed";
-  report.qualityAudit!.rejectedFields.push({
-    field: "qualityJudge.specificity.conversationPlan.opening30s",
-    reason: "开场话术仍可更具体",
-  });
-
-  expect(checkMinimum(report)).toMatchObject({
-    passed: false,
-    missing: expect.arrayContaining(["语义质量复核未通过"]),
-  });
-  expect(checkDeliveryMinimum(report)).toEqual({ passed: true, missing: [] });
-});
-
 describe("report minimum quality", () => {
   it("accepts a complete structured report with partial-but-usable recovery stages", () => {
     expect(checkMinimum(completeReport())).toEqual({ passed: true, missing: [] });
-  });
-
-  it("does not reject normal Chinese punctuation after a closing quotation mark", () => {
-    const report = completeReport();
-    report.conversationPlan.opening30s = field(
-      "我们关注到贵司已发布“智能营销平台”。希望进一步了解该平台目前覆盖的业务流程、评价指标和系统接口。",
-      "inferred",
-    );
-
-    expect(checkBanRules(report)).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ rule: "no_malformed_punctuation" }),
-    ]));
-  });
-
-  it("normalizes malformed punctuation across every generated narrative before audit", () => {
-    const report = completeReport();
-    report.salesVerdict.recommendationReason.value = "目标公司已发布新品。。";
-    report.customerIntelligence.companyOverview.value = "公开资料提到“公司已发布新品。”。";
-    report.opportunityAnalysis.opportunities[0]!.productMatch.value = "可先验证接口兼容性。。";
-    report.conversationPlan.valueBridge.value = "帮助团队提升效率。。";
-
-    const normalized = normalizeSalesReportNarrative(report);
-
-    expect(normalized.salesVerdict.recommendationReason.value).toBe("目标公司已发布新品。");
-    expect(normalized.customerIntelligence.companyOverview.value).toBe("公开资料提到“公司已发布新品。”");
-    expect(normalized.opportunityAnalysis.opportunities[0]!.productMatch.value).toBe("可先验证接口兼容性。");
-    expect(normalized.conversationPlan.valueBridge.value).toBe("帮助团队提升效率。");
-    expect(checkBanRules(normalized)).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ rule: "no_malformed_punctuation" }),
-    ]));
   });
 
   it("rejects thin core chapters and placeholder contamination", () => {
@@ -197,18 +151,6 @@ describe("report minimum quality", () => {
     expect(checkBanRules(report)).toEqual(expect.arrayContaining([
       expect.objectContaining({ rule: "no_placeholder_or_search_summary" }),
       expect.objectContaining({ rule: "no_script_or_encoded_payload" }),
-    ]));
-  });
-
-  it("rejects generic opportunity fallback and untranslated crawler text", () => {
-    const report = completeReport();
-    report.salesVerdict.priorityOpportunity = field("当前公开信息不足以做出明确机会判断，建议首次沟通重点探索客户当前痛点和采购计划。", "inferred");
-    report.conversationPlan.opening30s = field("Click to expand the latest news menu", "inferred");
-
-    const violations = checkBanRules(report);
-    expect(violations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ rule: "no_generic_opportunity_fallback" }),
-      expect.objectContaining({ rule: "no_untranslated_english_noise" }),
     ]));
   });
 

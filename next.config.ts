@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  // The repository also contains a legacy application at its outer root.
+  // Pin Turbopack to this application so it never discovers that app's
+  // obsolete Vercel Workflow dependency while building the Render service.
   turbopack: {
     root: __dirname,
   },

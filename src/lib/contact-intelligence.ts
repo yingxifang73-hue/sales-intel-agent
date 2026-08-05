@@ -43,15 +43,6 @@ function cleanAddress(value: string): string {
     .trim();
 }
 
-function isValidAddress(value: string): boolean {
-  const text = value.trim();
-  if (text.length < 6 || text.length > 140) return false;
-  if (/[.!?]{2,}|\b(?:and|or|the|you|your|encounter|issues)\b/i.test(text)) return false;
-  const hasChineseLocation = /[\u7701\u5e02\u53bf\u533a\u9547\u4e61\u8857\u9053\u8def\u53f7\u5ba4\u697c\u680b\u56ed\u533a\u5927\u9053]/u.test(text);
-  const hasEnglishLocation = /\b(?:street|road|avenue|boulevard|drive|lane|suite|floor|building|new york|california|london|singapore)\b/i.test(text);
-  return hasChineseLocation || hasEnglishLocation;
-}
-
 function validSourceIds(value: unknown, sources: Source[]): string[] {
   if (!Array.isArray(value)) return [];
   const ids = new Set(sources.map((source) => source.id));
@@ -125,7 +116,6 @@ function normalizeChannel(raw: unknown, sources: Source[], targetUrl: string): C
 
   const cleanValue = kind === "address" ? cleanAddress(value) : value;
   if (!cleanValue) return undefined;
-  if (kind === "address" && !isValidAddress(cleanValue)) return undefined;
   return { kind, label, value: cleanValue, ...(url ? { url } : {}), status, sourceIds };
 }
 
@@ -171,7 +161,7 @@ const ADDRESS_LABEL_PATTERN = /(?:\u8054\u7cfb\u5730\u5740|\u529e\u516c\u5730\u5
 function extractLabeledAddresses(text: string): string[] {
   return [...text.matchAll(ADDRESS_LABEL_PATTERN)]
     .map((match) => cleanAddress(match[1] ?? ""))
-    .filter((value): value is string => Boolean(value && /[\p{L}\p{N}]/u.test(value) && isValidAddress(value)));
+    .filter((value): value is string => Boolean(value && /[\p{L}\p{N}]/u.test(value)));
 }
 
 /**
@@ -225,7 +215,7 @@ export function extractVerifiedContactsFromSources(sources: Source[], targetUrl:
     }
     for (const match of text.matchAll(/(?:联系地址|办公地址|注册地址|总部地址|公司地址|地址)[：:\s]*([^。；\n]{6,80})/g)) {
       const value = cleanAddress(match[1] ?? "");
-      if (value && /[\u3400-\u9fff]/.test(value) && isValidAddress(value)) {
+      if (value && /[\u3400-\u9fff]/.test(value)) {
         pushUnique(channels, { kind: "address", label: "公开地址", value, status: "verified", sourceIds: [source.id] });
       }
     }

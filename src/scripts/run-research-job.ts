@@ -1,17 +1,18 @@
 import { runResearchJob } from "@/lib/research-job-runner";
 
-function readResearchId(args: string[]): string {
-  const index = args.indexOf("--research-id");
-  const researchId = index >= 0 ? args[index + 1] : undefined;
+function readResearchId(argumentsList: string[]): string {
+  const index = argumentsList.indexOf("--research-id");
+  const researchId = index >= 0 ? argumentsList[index + 1]?.trim() : "";
   if (!researchId) throw new Error("缺少 --research-id 参数。");
   return researchId;
 }
 
 async function main() {
-  await runResearchJob(readResearchId(process.argv.slice(2)));
+  const researchId = readResearchId(process.argv.slice(2));
+  await runResearchJob(researchId);
 }
 
 void main().catch((error) => {
-  console.error(error instanceof Error ? error.message : "Research job failed.");
+  console.error(error instanceof Error ? error.stack ?? error.message : error);
   process.exitCode = 1;
 });

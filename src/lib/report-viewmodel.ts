@@ -207,7 +207,16 @@ function cleanDisplayValue(value: string | undefined): string {
   const cleaned = sanitizeReportText((value ?? "")
     .replace(/\[(?:搜索摘要|待验证|待确认)\]\s*/gu, "")
     .replace(/^(?:搜索摘要|待验证|待确认)\s*[：:，,]?\s*/u, "")
+    // 清理 LLM 输出中残留的 markdown 标记符号
+    .replace(/[`*_#~]/g, "")
+    // 删除独立成行的孤立标点（如单独一行只有 "）"、"；"、"，" 等）
+    .replace(/^\s*[，。！？；：、""''）】》」』]+\s*$/gmu, "")
+    // 删除行首的孤立标点（如 "）；一些文字" 中的 "）；"）
+    .replace(/^[，。！？；：、""''）】》」』]+/gmu, "")
+    .replace(/\s{2,}/g, " ")
     .trim());
+  // 如果清理后只剩日期/时间范围（如 "2022年8月"、"2022-08"），丢弃
+  if (/^[\[（(]?\s*(?:\d{4}\s*[-/年\.]\s*\d{1,2}\s*(?:[-/月\.]\s*\d{1,2})?\s*日?\s*)[\]）)]?\s*$/.test(cleaned)) return "";
   return isUserFacingChineseText(cleaned) ? cleaned : "";
 }
 

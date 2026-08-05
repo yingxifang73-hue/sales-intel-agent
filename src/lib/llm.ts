@@ -6,7 +6,7 @@ import { extractVerifiedContactsFromSources, normalizeContactIntelligence } from
 import { checkMinimum } from "@/lib/quality-gate";
 import { assessSource, type EvidenceCategory } from "@/lib/source-quality";
 import { getPreset } from "@/lib/presets";
-import { buildSemanticRepairInstruction, type ReportGenerationStage } from "@/lib/report-repair";
+import type { ReportGenerationStage } from "@/lib/report-repair";
 import {
   extractDeterministicSourceFacts,
   mergeSourceFactBundles,
@@ -44,16 +44,6 @@ function validSourceIds(value: unknown, sources: Source[]): string[] | undefined
     return undefined;
   }).filter((id): id is string => typeof id === "string" && id.length > 0);
   return ids.length ? [...new Set(ids)].slice(0, 10) : undefined;
-}
-
-/** Resolve the provider's compact S1/S2 identifier back to a batch source id. */
-export function resolveModelBundleSourceId(value: unknown, sourceIds: readonly string[]): string | undefined {
-  if (typeof value !== "string") return undefined;
-  if (sourceIds.includes(value)) return value;
-  const shortMatch = value.match(/^S(\d+)$/i);
-  if (!shortMatch) return undefined;
-  const index = Number.parseInt(shortMatch[1]!, 10) - 1;
-  return index >= 0 && index < sourceIds.length ? sourceIds[index] : undefined;
 }
 
 function readableText(value: unknown): string | undefined {
@@ -222,35 +212,9 @@ function conciseEvidenceContext(value: string | undefined): string {
   return (sentences.length ? sentences.slice(0, 2).join(" ") : cleaned).trim();
 }
 
-function withoutTerminalPunctuation(value: string): string {
-  return value.trim().replace(/[。！？；：，、.!?;:,\s]+$/u, "");
-}
-
 // ─── LLM 调用（原生 fetch，避开 SDK 兼容问题）───
 
-type OpenAiCompletionPayload = {
-  choices?: Array<{
-    delta?: { content?: unknown };
-    message?: { content?: unknown };
-    text?: unknown;
-  }>;
-};
-
-/**
- * OpenAI-compatible gateways are allowed to ignore stream=true and return a
- * regular JSON completion. Treating that response as SSE loses valid model
- * output and causes needless timeout/retry cycles.
- */
-export async function readOpenAiSseContent(response: Response): Promise<string> {
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (contentType.includes("application/json")) {
-    const payload = await response.json() as OpenAiCompletionPayload;
-    const choice = payload.choices?.[0];
-    const content = choice?.message?.content ?? choice?.delta?.content ?? choice?.text;
-    if (typeof content === "string" && content.trim()) return content;
-    throw new Error("empty model JSON response");
-  }
-
+async function readOpenAiSseContent(response: Response): Promise<string> {
   if (!response.body) throw new Error("model stream body is unavailable");
 
   const reader = response.body.getReader();
@@ -264,7 +228,7 @@ export async function readOpenAiSseContent(response: Response): Promise<string> 
     const data = value.slice("data:".length).trim();
     if (!data || data === "[DONE]") return;
     try {
-      const chunk = JSON.parse(data) as OpenAiCompletionPayload;
+      const chunk = JSON.parse(data) as { choices?: Array<{ delta?: { content?: unknown } }> };
       const delta = chunk.choices?.[0]?.delta?.content;
       if (typeof delta === "string") content += delta;
     } catch {
@@ -288,20 +252,9 @@ export async function readOpenAiSseContent(response: Response): Promise<string> 
   return content;
 }
 
-/**
- * Supports OpenAI-compatible providers configured with either a host URL
- * (https://provider.example) or a versioned URL (https://provider.example/v1).
- * Appending /v1 twice makes the provider return 404 before any research starts.
- */
-export function chatCompletionsUrl(baseUrl: string): string {
-  const normalized = baseUrl.replace(/\/+$/, "");
-  return /\/v1$/i.test(normalized)
-    ? `${normalized}/chat/completions`
-    : `${normalized}/v1/chat/completions`;
-}
-
 async function completeJson(config: AppConfig, system: string, payload: unknown, maxTokens: number, repair = false): Promise<string> {
-  const url = chatCompletionsUrl(config.OPENAI_BASE_URL);
+  const baseUrl = config.OPENAI_BASE_URL.replace(/\/$/, "");
+  const url = `${baseUrl}/v1/chat/completions`;
 
   // A slow provider (e.g. proxied reasoning models) can need more than one
   // round trip for a structured JSON response. Retry on transient failures
@@ -554,10 +507,11 @@ export async function extractSourceFactBundles(
               : [];
         for (const rawBundle of rawBundles) {
           if (!isRecord(rawBundle)) continue;
-          const sourceId = resolveModelBundleSourceId(
-            rawBundle.sourceId,
-            pendingBatch.map((item) => item.id),
-          ) ?? (pendingBatch.length === 1 ? pendingBatch[0]!.id : undefined);
+          const sourceId = typeof rawBundle.sourceId === "string"
+            ? rawBundle.sourceId
+            : pendingBatch.length === 1
+              ? pendingBatch[0]!.id
+              : undefined;
           const source = sourceId ? pendingBatch.find((item) => item.id === sourceId) : undefined;
           if (!source) continue;
           const modelBundle = bundleFromModelResponse(rawBundle, source);
@@ -601,7 +555,6 @@ export async function extractSourceFactBundles(
 async function generateFacts(
   config: AppConfig, report: SalesReport, input: ResearchInput, sources: Source[],
   preExtracted?: SourceFactExtractionResult,
-  qualityFeedback: RejectedField[] = [],
 ): Promise<{ ci: CustomerIntelligence; contacts: ContactIntelligence; signals: ResearchListItem[]; outcomes: Record<string, StageOutcome>; rejected: RejectedField[] } | null> {
   // The old whole-corpus request made every customer field depend on one JSON
   // response. The map-reduce path below deliberately returns before that
@@ -612,8 +565,7 @@ async function generateFacts(
   const hasContent = merged.customerIntelligence.companyOverview.status !== "insufficient"
     || merged.customerIntelligence.productsAndServices.length > 0
     || merged.signals.length > 0;
-  const repairInstruction = buildSemanticRepairInstruction(qualityFeedback);
-  if (hasContent && !repairInstruction) {
+  if (hasContent) {
     return {
       ci: merged.customerIntelligence,
       contacts: { channels: [], publicContacts: [] },
@@ -633,8 +585,6 @@ async function generateFacts(
       valueProposition: input.sellerProfile.valueProposition,
       targetCustomer: input.sellerProfile.targetCustomer,
     },
-    currentCustomerProfile: merged.customerIntelligence,
-    qualityReviewFeedback: qualityFeedback,
     evidence,
   };
   const outcomes: Record<string, StageOutcome> = { facts: "failed" };
@@ -642,13 +592,7 @@ async function generateFacts(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await completeJson(
-        config,
-        `${factsPrompt(payload.sellerContext)}${repairInstruction}`,
-        payload,
-        2_800,
-        attempt > 0,
-      );
+      const raw = await completeJson(config, factsPrompt(payload.sellerContext), payload, 2_800, attempt > 0);
       const parsed = extractJson(raw);
       const ciRaw = isRecord(parsed?.customerIntelligence) ? parsed.customerIntelligence : undefined;
       if (!ciRaw) continue;
@@ -678,18 +622,6 @@ async function generateFacts(
     } catch (error) {
       if (attempt === 1) console.error("Facts generation failed:", error instanceof Error ? error.message : "unknown");
     }
-  }
-  if (hasContent) {
-    return {
-      ci: merged.customerIntelligence,
-      contacts: { channels: [], publicContacts: [] },
-      signals: merged.signals,
-      outcomes: { ...extraction.outcomes, facts: "partial" },
-      rejected: [
-        ...extraction.rejected,
-        { field: "qualityRepair.facts", reason: "定向修复模型未返回可用结果，已保留原有来源事实" },
-      ],
-    };
   }
   outcomes.facts = "failed";
   return null;
@@ -736,7 +668,6 @@ signal 只能复述来源直接事实，不得把“存在采购需求、持续�
 async function generateOpportunity(
   config: AppConfig, report: SalesReport, input: ResearchInput, sources: Source[],
   ci: CustomerIntelligence, signals: ResearchListItem[],
-  qualityFeedback: RejectedField[] = [],
 ): Promise<{ oa: OpportunityAnalysis; outcomes: Record<string, StageOutcome>; rejected: RejectedField[] } | null> {
   const referencedSourceIds = referencedIdsFromFields([
     ci.companyOverview,
@@ -768,7 +699,6 @@ async function generateOpportunity(
       recentUpdates: ci.recentUpdates.map((u) => u.value),
     },
     signals: signals.map((s) => ({ value: s.value, sourceIds: s.sourceIds })),
-    qualityReviewFeedback: qualityFeedback,
     evidence,
   };
   const outcomes: Record<string, StageOutcome> = { opportunity: "failed" };
@@ -776,13 +706,7 @@ async function generateOpportunity(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await completeJson(
-        config,
-        `${opportunityPrompt(payload.sellerProfile)}${buildSemanticRepairInstruction(qualityFeedback)}`,
-        payload,
-        2_200,
-        attempt > 0,
-      );
+      const raw = await completeJson(config, opportunityPrompt(payload.sellerProfile), payload, 2_200, attempt > 0);
       const parsed = extractJson(raw);
       if (!isRecord(parsed)) continue;
 
@@ -879,15 +803,10 @@ export function ensureConversationDepth(
   cp: ConversationPlan,
 ): ConversationPlan {
   const productName = input.sellerProfile.productName;
-  const value = withoutTerminalPunctuation(
-    input.sellerProfile.valueProposition || `围绕${productName}提供可验证的效率、质量或业务改进能力`,
-  );
+  const value = input.sellerProfile.valueProposition || `围绕${productName}提供可验证的效率、质量或业务改进能力`;
   const context = ci.recentUpdates[0] ?? ci.productsAndServices[0];
   const sourceIds = context?.sourceIds ?? ci.companyOverview.sourceIds;
   const contextText = conciseEvidenceContext(context?.value ?? ci.companyOverview.value) || "贵司公开业务信息";
-  const quotedContext = /[。！？!?]$/u.test(contextText)
-    ? `“${contextText}”`
-    : `“${contextText}”。`;
   const topOpportunity = oa.opportunities[0];
 
   return {
@@ -899,7 +818,7 @@ export function ensureConversationDepth(
       : cp.communicationGoal,
     opening30s: needsField(cp.opening30s, 60)
       ? inferredField(
-          `我们关注到贵司公开资料提到${quotedContext}我们提供${productName}，希望先了解这一业务场景目前的流程、规模和评价指标，判断是否存在一个范围可控、结果可衡量的试点切入点。`,
+          `我们关注到贵司公开资料提到“${contextText}”。我们提供${productName}，希望先了解这一业务场景目前的流程、规模和评价指标，判断是否存在一个范围可控、结果可衡量的试点切入点。`,
           sourceIds,
         )
       : cp.opening30s,
@@ -973,7 +892,6 @@ function conversationPrompt(seller: { productName: string; valueProposition: str
 async function generateConversation(
   config: AppConfig, report: SalesReport, input: ResearchInput, sources: Source[],
   ci: CustomerIntelligence, oa: OpportunityAnalysis,
-  qualityFeedback: RejectedField[] = [],
 ): Promise<{ cp: ConversationPlan; outcomes: Record<string, StageOutcome>; rejected: RejectedField[] } | null> {
   const referencedSourceIds = referencedIdsFromFields([
     ci.companyOverview,
@@ -1020,7 +938,6 @@ async function generateConversation(
       confidence: o.confidence.value,
     })),
     overallFit: oa.overallConfidence.value,
-    qualityReviewFeedback: qualityFeedback,
     evidence,
   };
   const outcomes: Record<string, StageOutcome> = { conversation: "failed" };
@@ -1028,13 +945,7 @@ async function generateConversation(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await completeJson(
-        config,
-        `${conversationPrompt(payload.sellerProfile)}${buildSemanticRepairInstruction(qualityFeedback)}`,
-        payload,
-        1_800,
-        attempt > 0,
-      );
+      const raw = await completeJson(config, conversationPrompt(payload.sellerProfile), payload, 1_800, attempt > 0);
       const parsed = extractJson(raw);
       const cpRaw = isRecord(parsed?.conversationPlan) ? parsed.conversationPlan : undefined;
       if (!cpRaw) continue;
@@ -1151,33 +1062,26 @@ function synthesizeVerdict(
 
   const topSignal = signals[0];
   const topOpp = oa.opportunities[0];
-  const evidenceAnchor = withoutTerminalPunctuation(conciseEvidenceContext(
-    topSignal?.value
-      ?? ci.productsAndServices[0]?.value
-      ?? ci.companyOverview.value
-      ?? "客户官网展示的主营业务",
-  ).slice(0, 180));
-  const concreteOpportunity = hasSignals
-    ? `已从${signals.length}条客户业务信号中识别出“${evidenceAnchor}”；围绕${input.sellerProfile.productName}，首轮应核对相关业务流程、现有方案、技术接口和采购条件。`
-    : `客户官网已展示“${evidenceAnchor}”；围绕${input.sellerProfile.productName}，首轮应核对相关业务流程、现有方案、技术接口和采购条件。`;
 
   return {
     contactSuggestion: hasOpportunities
       ? inferredField(`建议联系：已发现与${input.sellerProfile.productName}直接相关的可验证信号，可据此开展需求确认。`, topOpp!.signal.sourceIds)
-      : inferredField(`建议先联系与${input.sellerProfile.productName}应用场景相关的业务、产品或技术负责人，核对现有方案与采购边界。`, topSignal?.sourceIds ?? ci.companyOverview.sourceIds),
+      : inferredField(`暂不建议直接推销${input.sellerProfile.productName}；当前公开资料尚未形成可验证的产品匹配机会。`, []),
     recommendationReason: hasOpportunities && topOpp
       ? inferredField("已根据公开业务信号形成首轮联系切入点；潜在痛点、采购计划和决策条件仍需通过首次沟通确认。", topOpp.signal.sourceIds)
       : inferredField(
-            overlappingSolution
-            ? `已识别目标公司存在与${input.sellerProfile.productName}相近的自研或现有能力；首轮应核对系统边界、接口和明确的互补缺口，再决定推进方式。`
-            : concreteOpportunity,
+          overlappingSolution
+            ? `公开资料表明目标公司已有与${input.sellerProfile.productName}相近的自研或现有能力，当前不应直接判断为采购机会；仅在发现明确互补缺口后再推进。`
+            : hasSignals && topSignal
+            ? `虽然发现${signals.length}条客户业务动态，但这些动态不足以证明其对${input.sellerProfile.productName}存在需求。`
+            : `公开资料不足以证明目标公司对${input.sellerProfile.productName}存在需求。`,
           oa.currentSolutionOrCompetition.sourceIds.length ? oa.currentSolutionOrCompetition.sourceIds : topSignal?.sourceIds ?? [],
         ),
     keyCustomerSignals: signals.slice(0, 3),
     priorityContactRole: cp.recommendedContact.status !== "insufficient" ? cp.recommendedContact : inferredField("根据客户业务性质，建议优先联系业务、产品或技术负责人；确认存在外采需求后再同步采购负责人。", []),
     priorityOpportunity: hasOpportunities && topOpp?.painPoint.value
       ? { value: topOpp.painPoint.value, status: "inferred", sourceIds: topOpp.painPoint.sourceIds }
-      : inferredField(concreteOpportunity, topSignal?.sourceIds ?? ci.productsAndServices[0]?.sourceIds ?? []),
+      : inferredField("当前公开信息不足以做出明确机会判断，建议首次沟通重点探索客户当前痛点和采购计划。", []),
     recommendedNextStep: cp.nextStep.status !== "insufficient" ? cp.nextStep : inferredField(input.sellerProfile.callToAction, []),
   };
 }
@@ -1272,13 +1176,12 @@ export async function enhanceWithLlm(
   sources: Source[],
   config: AppConfig,
   preExtracted?: SourceFactExtractionResult,
-  options: { stages?: readonly ReportGenerationStage[]; qualityFeedback?: RejectedField[] } = {},
+  options: { stages?: readonly ReportGenerationStage[] } = {},
 ): Promise<SalesReport> {
   sources = dedupeSources(sources);
   const stages = new Set<ReportGenerationStage>(
     options.stages ?? ["facts", "opportunity", "conversation", "quality_review"],
   );
-  const qualityFeedback = options.qualityFeedback ?? [];
   if (!config.OPENAI_API_KEY) {
     const extraction = preExtracted ?? await extractSourceFactBundles(config, input, sources);
     const merged = mergeSourceFactBundles(extraction.bundles, sources);
@@ -1309,7 +1212,7 @@ export async function enhanceWithLlm(
   let signals: ResearchListItem[] = report.salesVerdict.keyCustomerSignals ?? [];
   const factsStartedAt = Date.now();
   const factsResult = stages.has("facts")
-    ? await generateFacts(config, report, input, sources, preExtracted, qualityFeedback)
+    ? await generateFacts(config, report, input, sources, preExtracted)
     : null;
   if (stages.has("facts")) {
     llmCalls += 1;
@@ -1343,7 +1246,7 @@ export async function enhanceWithLlm(
   let oa: OpportunityAnalysis = report.opportunityAnalysis;
   const opportunityStartedAt = Date.now();
   const oppResult = stages.has("opportunity")
-    ? await generateOpportunity(config, report, input, sources, ci, signals, qualityFeedback)
+    ? await generateOpportunity(config, report, input, sources, ci, signals)
     : null;
   if (stages.has("opportunity")) {
     llmCalls += 1;
@@ -1355,16 +1258,9 @@ export async function enhanceWithLlm(
     qualityAudit.stageOutcomes = { ...qualityAudit.stageOutcomes, ...oppResult.outcomes };
     qualityAudit.rejectedFields = [...qualityAudit.rejectedFields, ...oppResult.rejected];
   } else if (stages.has("opportunity")) {
-    // When the model round-trips all fail but we still have enough signals and
-    // company facts to produce a useful (even if negative) recommendation, mark
-    // the stage partial instead of failed. A "暂不建议推销" verdict backed by
-    // real signals IS a valid outcome — it prevents a sales rep from wasting
-    // time on the wrong account. Only hard-fail when there is truly nothing.
     const hasPriorOa = report.opportunityAnalysis.opportunities.length > 0
       || report.opportunityAnalysis.currentSolutionOrCompetition.status !== "insufficient";
-    const hasSignals = signals.length > 0;
-    const hasFacts = ci.companyOverview.status !== "insufficient" || ci.productsAndServices.length > 0;
-    qualityAudit.stageOutcomes.opportunity = (hasPriorOa || (hasSignals && hasFacts)) ? "partial" : "failed";
+    qualityAudit.stageOutcomes.opportunity = hasPriorOa ? "partial" : "failed";
   }
 
   // ── 阶段 3：沟通作战 ──
@@ -1376,7 +1272,7 @@ export async function enhanceWithLlm(
   let cp: ConversationPlan = report.conversationPlan;
   const conversationStartedAt = Date.now();
   const convResult = stages.has("conversation")
-    ? await generateConversation(config, report, input, sources, ci, oa, qualityFeedback)
+    ? await generateConversation(config, report, input, sources, ci, oa)
     : null;
   if (stages.has("conversation")) {
     llmCalls += 1;
@@ -1388,16 +1284,10 @@ export async function enhanceWithLlm(
     qualityAudit.stageOutcomes = { ...qualityAudit.stageOutcomes, ...convResult.outcomes };
     qualityAudit.rejectedFields = [...qualityAudit.rejectedFields, ...convResult.rejected];
   } else if (stages.has("conversation")) {
-    // Same logic as opportunity: if we can still produce a useful conversation
-    // plan (even with fallback questions) backed by facts and signals, mark
-    // partial rather than failed so the report is deliverable.
     const hasPriorCp = report.conversationPlan.discoveryQuestions.length > 0
       || report.conversationPlan.opening30s.status !== "insufficient"
       || report.conversationPlan.valueBridge.status !== "insufficient";
-    const hasFactsOrOpps = ci.companyOverview.status !== "insufficient"
-      || ci.productsAndServices.length > 0
-      || oa.opportunities.length > 0;
-    qualityAudit.stageOutcomes.conversation = (hasPriorCp || hasFactsOrOpps) ? "partial" : "failed";
+    qualityAudit.stageOutcomes.conversation = hasPriorCp ? "partial" : "failed";
   }
   cp = ensureConversationDepth(input, ci, oa, cp);
   if (!convResult && cp.discoveryQuestions.length >= 3) {
@@ -1446,11 +1336,6 @@ export async function enhanceWithLlm(
     const semanticReview = await judgeSemanticQuality(config, input, candidateReport, sources);
     llmCalls += 1;
     console.info(JSON.stringify({ event: "research_stage_timing", stage: "quality_review", durationMs: Date.now() - qualityStartedAt }));
-    console.info(JSON.stringify({
-      event: "semantic_quality_review",
-      passed: semanticReview?.passed ?? null,
-      issues: semanticReview?.issues ?? [],
-    }));
     qualityAudit.rejectedFields = qualityAudit.rejectedFields.filter(
       (item) => !item.field.startsWith("qualityJudge."),
     );

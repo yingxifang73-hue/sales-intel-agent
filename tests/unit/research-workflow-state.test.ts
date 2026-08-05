@@ -56,12 +56,12 @@ describe("research workflow state", () => {
   it("batches every selected source without silently truncating coverage", () => {
     expect(sourceFactBatchCount(0)).toBe(0);
     expect(sourceFactBatchCount(1)).toBe(1);
-    expect(sourceFactBatchCount(2)).toBe(2);
-    expect(sourceFactBatchCount(3)).toBe(3);
-    expect(sourceFactBatchCount(4)).toBe(4);
-    expect(sourceFactBatchCount(6)).toBe(6);
-    expect(sourceFactBatchCount(7)).toBe(7);
-    expect(sourceFactBatchCount(17)).toBe(17);
+    expect(sourceFactBatchCount(2)).toBe(1);
+    expect(sourceFactBatchCount(3)).toBe(1);
+    expect(sourceFactBatchCount(4)).toBe(2);
+    expect(sourceFactBatchCount(6)).toBe(2);
+    expect(sourceFactBatchCount(7)).toBe(3);
+    expect(sourceFactBatchCount(17)).toBe(6);
   });
 
   it("merges durable fact batches without duplicating a retried source", () => {

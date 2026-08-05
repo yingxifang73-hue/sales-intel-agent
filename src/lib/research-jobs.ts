@@ -4,7 +4,6 @@ import type { DualChannelResult } from "@/lib/research";
 import type { SourceFactExtractionResult } from "@/lib/llm";
 import { ResearchInputSchema, SalesReportSchema, type ResearchInput, type ResearchStatus, type SalesReport, type Source } from "@/lib/types";
 import { normalizeSalesReportAudit } from "@/lib/quality-audit";
-import { normalizeSalesReportNarrative } from "@/lib/report-text";
 
 export type ResearchJob = {
   id: string;
@@ -56,9 +55,7 @@ function parseJob(value: DbJob): ResearchJob {
     collection: asObject(value.collection) as unknown as DualChannelResult | undefined,
     selectedSources: Array.isArray(value.selected_sources) ? value.selected_sources as Source[] : undefined,
     sourceFacts: asObject(value.source_facts) as unknown as SourceFactExtractionResult | undefined,
-    report: rawReport
-      ? normalizeSalesReportNarrative(SalesReportSchema.parse(normalizeSalesReportAudit(rawReport)))
-      : undefined,
+    report: rawReport ? SalesReportSchema.parse(normalizeSalesReportAudit(rawReport)) : undefined,
     workflowRunId: typeof value.workflow_run_id === "string" ? value.workflow_run_id : undefined,
     error: typeof value.error === "string" ? value.error : undefined,
     createdAt: String(value.created_at),
@@ -131,8 +128,7 @@ export async function storeSourceFacts(id: string, facts: SourceFactExtractionRe
 }
 
 export async function storeResearchReport(id: string, report: SalesReport): Promise<void> {
-  const normalized = normalizeSalesReportNarrative(SalesReportSchema.parse(normalizeSalesReportAudit(report)));
-  await updateActiveResearchJob(id, { report: SalesReportSchema.parse(normalized) });
+  await updateActiveResearchJob(id, { report: SalesReportSchema.parse(normalizeSalesReportAudit(report)) });
 }
 
 export async function markResearchJobCompleted(id: string): Promise<ResearchJob> {

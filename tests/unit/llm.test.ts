@@ -351,29 +351,6 @@ describe("机会兜底", () => {
     expect(result.objectionResponses.length).toBeGreaterThanOrEqual(1);
     expect(result.nextStep.value?.length).toBeGreaterThan(24);
   });
-
-  it("does not create repeated punctuation when fallback copy quotes a complete fact", () => {
-    const report = baseReport();
-    const result = ensureConversationDepth(
-      {
-        ...input,
-        sellerProfile: {
-          ...input.sellerProfile,
-          valueProposition: "帮助销售更快准备客户拜访。",
-        },
-      },
-      report.customerIntelligence,
-      report.opportunityAnalysis,
-      {
-        ...report.conversationPlan,
-        opening30s: { status: "insufficient", sourceIds: [] },
-        valueBridge: { status: "insufficient", sourceIds: [] },
-      },
-    );
-
-    expect(result.opening30s.value).not.toMatch(/[。！？；：，、][”"]\s*[。！？；：，、.]/u);
-    expect(result.valueBridge.value).not.toMatch(/([。！？；：，、])\1/u);
-  });
 });
 
 describe("模型阶段超时降级", () => {

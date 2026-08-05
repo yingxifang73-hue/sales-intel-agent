@@ -65,7 +65,12 @@ export function presentResearchFailure(error: unknown, stage?: string): string {
   const { message, code } = normalizeWorkflowError(error);
   const label = STAGE_LABELS[stage ?? ""] ?? "调研流程";
   if (code === "report_missing" || code === "report_quality" || code === "structured_output") {
-    return `调研在“${label}”阶段未能形成完整报告，系统已自动释放本次调研次数。请稍后重新发起。`;
+    // Expose the real missing fields instead of swallowing the cause.
+    // buildUndeliverableReport text is classified as report_quality and
+    // contains diagnostics like "模型阶段未完成：facts" - hiding those
+    // leaves the user with a useless generic message every time.
+    const cause = message && message !== FALLBACK_MESSAGE ? `（${message.slice(0, 80)}）` : "";
+    return `调研在“${label}”阶段未能形成完整报告${cause}，系统已自动释放本次调研次数。请稍后重新发起。`;
   }
   if (code === "provider_timeout" || code === "provider_rate_limited") {
     return `调研在“${label}”阶段的服务响应未完成，系统已自动释放本次调研次数。请稍后重新发起。`;
