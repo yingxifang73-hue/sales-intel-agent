@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   devIndicators: false,
   // The repository also contains a legacy application at its outer root.
   // Pin Turbopack to this application so it never discovers that app's
