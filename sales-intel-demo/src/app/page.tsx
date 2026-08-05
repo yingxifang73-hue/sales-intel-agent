@@ -115,7 +115,6 @@ export default function Home() {
   const [targetUrl, setTargetUrl] = useState("");
   const [preset, setPreset] = useState<Preset>("general");
   const [customIndustry, setCustomIndustry] = useState("");
-  const [industryLabel, setIndustryLabel] = useState("");
   const [profile, setProfile] = useState({
     productName: "",
     valueProposition: "",
@@ -405,10 +404,8 @@ export default function Home() {
                         <IndustrySelector
                           preset={preset}
                           customIndustry={customIndustry}
-                          industryLabel={industryLabel}
                           onPresetChange={setPreset}
                           onCustomIndustryChange={setCustomIndustry}
-                          onIndustryLabelChange={setIndustryLabel}
                         />
                       </label>
                     </div>
@@ -440,7 +437,6 @@ export default function Home() {
                       setTargetUrl("");
                       setPreset("general");
                       setCustomIndustry("");
-                      setIndustryLabel("");
                       setProfile({ productName: "", valueProposition: "", targetCustomer: "", customerProblems: [""], proofPoints: [""], callToAction: DEFAULT_CALL_TO_ACTION });
                     }}>清空</button>
                     <button type="submit" className="si-primary-action">开始调研</button>
