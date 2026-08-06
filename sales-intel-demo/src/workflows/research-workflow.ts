@@ -268,6 +268,10 @@ async function verifyAndSettle(jobId: string) {
   const minimum = checkMinimum(report);
   const finalized = {
     ...report,
+    reportMeta: {
+      ...report.reportMeta,
+      status: minimum.passed ? "达标" : "未达标",
+    },
     qualityAudit: report.qualityAudit ? { ...report.qualityAudit, minimumStandardMet: minimum.passed, missingFields: minimum.missing } : report.qualityAudit,
   };
   await storeResearchReport(jobId, parseWorkflowReport(finalized, "报告校验"));
